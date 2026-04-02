@@ -557,13 +557,26 @@ function openModal(title, score) {
 
 async function fetchPoster(title) {
   const query = `query($s:String){Media(search:$s,type:ANIME){coverImage{large}}}`;
-  const res = await fetch('https://graphql.anilist.co', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, variables: { s: title } })
-  });
-  const json = await res.json();
-  return json.data?.Media?.coverImage?.large ?? null;
+
+  async function search(q) {
+    const res = await fetch('https://graphql.anilist.co', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, variables: { s: q } })
+    });
+    const json = await res.json();
+    return json.data?.Media?.coverImage?.large ?? null;
+  }
+
+  // 1차: 원제목 검색
+  let url = await search(title);
+  if (url) return url;
+
+  // 2차: "N기/N쿨/시즌N/Part N" 제거 후 재검색
+  const stripped = title.replace(/\s*\d+기$|\s*\d+쿨$|\s*시즌\s*\d+$|\s*Part\s*\d+$/i, '').trim();
+  if (stripped && stripped !== title) url = await search(stripped);
+
+  return url;
 }
 
 document.getElementById('main').addEventListener('click', async e => {
