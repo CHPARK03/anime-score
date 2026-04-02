@@ -558,7 +558,7 @@ function openModal(title, score) {
 async function fetchPoster(title) {
   const query = `query($s:String){Media(search:$s,type:ANIME){coverImage{large}}}`;
 
-  async function search(q) {
+  async function searchAL(q) {
     const res = await fetch('https://graphql.anilist.co', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -568,13 +568,32 @@ async function fetchPoster(title) {
     return json.data?.Media?.coverImage?.large ?? null;
   }
 
-  // 1차: 원제목 검색
-  let url = await search(title);
+  async function translate(q) {
+    try {
+      const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(q)}&langpair=ko|en`);
+      const json = await res.json();
+      return json.responseData?.translatedText ?? null;
+    } catch { return null; }
+  }
+
+  function strip(t) {
+    return t.replace(/\s*\d+기$|\s*\d+쿨$|\s*시즌\s*\d+$|\s*Part\s*\d+$/i, '').trim();
+  }
+
+  // 1단계: 원제목
+  let url = await searchAL(title);
   if (url) return url;
 
-  // 2차: "N기/N쿨/시즌N/Part N" 제거 후 재검색
-  const stripped = title.replace(/\s*\d+기$|\s*\d+쿨$|\s*시즌\s*\d+$|\s*Part\s*\d+$/i, '').trim();
-  if (stripped && stripped !== title) url = await search(stripped);
+  // 2단계: N기/N쿨 제거 후 재검색
+  const stripped = strip(title);
+  if (stripped !== title) {
+    url = await searchAL(stripped);
+    if (url) return url;
+  }
+
+  // 3단계: 영어 번역 후 재검색
+  const en = await translate(stripped || title);
+  if (en) url = await searchAL(en);
 
   return url;
 }
