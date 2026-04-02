@@ -555,8 +555,33 @@ function openModal(title, score) {
   modalScoreEl.textContent    = score !== null ? `⭐ ${score} / 10` : '▶ 시청 중';
 }
 
+// ── 제목 정규화 매핑 (축약·은어 → 실제 제목) ──────────────
+const TITLE_ALIAS = {
+  '나혼렙 2기':             '나 혼자만 레벨업',
+  '귀칼 4기(대장장이)':     '귀멸의 칼날',
+  '내청코':                 '나의 청춘 러브코미디는 잘못됐어',
+  '중2병':                  '중2병이라도 사랑이 하고 싶어',
+  '코미상':                 '코미 양은 커뮤증입니다',
+  '코미상 2기':             '코미 양은 커뮤증입니다',
+  '카구야님':               '카구야 님은 고백받고 싶어',
+  '청춘돼지':               '청춘 돼지는 바니걸 선배의 꿈을 꾸지 않는다',
+  '노겜노라 (극장판 포함)': '노 게임 노 라이프',
+  'Fate/밥상':              'Today\'s Menu for Emiya Family',
+  '블루록 1기, 2기':        '블루 로크',
+  '진격의 거인 3기까지':    '진격의 거인',
+  '너에게 닿기를 3기까지':  '너에게 닿기를',
+  '비비':                   'Vivy Fluorite Eyes Song',
+  '좀100':                  'Zom 100 Bucket List of the Dead',
+  '팬스가 2기':             'Panty Stocking with Garterbelt',
+  '오키나와 사투리':        '오키나와에서 좋아하게 된 아이가 사투리가 심해서 너무 괴로워',
+  '이과 사랑':              '이과가 사랑에 빠졌기에 증명해보았다',
+  '야한 이야기 sox':        'Shimoneta',
+};
+
 async function fetchPoster(title) {
   const query = `query($s:String){Media(search:$s,type:ANIME){coverImage{large}}}`;
+  // 축약·은어 → 실제 제목으로 변환
+  title = TITLE_ALIAS[title] ?? title;
 
   async function searchAL(q) {
     const res = await fetch('https://graphql.anilist.co', {
