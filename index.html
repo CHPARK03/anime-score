@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>애니 감상 기록</title>
+<style>
+  :root {
+    --bg: #0f0f13;
+    --surface: #1a1a24;
+    --surface2: #22222f;
+    --border: #2e2e3e;
+    --accent: #7c6af0;
+    --accent2: #a78bfa;
+    --text: #e2e2f0;
+    --text-muted: #7c7c99;
+    --diamond:  #4fc3f7;
+    --platinum: #26a69a;
+    --gold:     #c8a234;
+    --silver:   #9e9eb0;
+    --bronze:   #8b5e3c;
+    --ongoing:  #94a3b8;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Pretendard', 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif;
+    min-height: 100vh;
+  }
+
+  /* ── 헤더 ── */
+  header {
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+    padding: 40px 24px 32px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+  }
+  header h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 6px; }
+  header h1 span { color: var(--accent2); }
+  .header-stats { display: flex; justify-content: center; gap: 32px; margin-top: 20px; flex-wrap: wrap; }
+  .stat { text-align: center; }
+  .stat-num { font-size: 28px; font-weight: 700; color: var(--accent2); }
+  .stat-label { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+  /* ── 탭 ── */
+  .tabs {
+    display: flex; gap: 4px;
+    padding: 16px 24px 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    overflow-x: auto;
+  }
+  .tab {
+    padding: 10px 18px; border-radius: 8px 8px 0 0;
+    cursor: pointer; font-size: 14px; font-weight: 500;
+    color: var(--text-muted); transition: all 0.2s;
+    white-space: nowrap; border: 1px solid transparent; border-bottom: none;
+  }
+  .tab:hover { color: var(--text); background: var(--surface2); }
+  .tab.active { color: var(--accent2); background: var(--bg); border-color: var(--border); }
+
+  /* ── 컨트롤 ── */
+  .controls {
+    display: flex; gap: 12px; align-items: center;
+    padding: 16px 24px; background: var(--surface); flex-wrap: wrap;
+  }
+  .search-wrap { position: relative; flex: 1; min-width: 200px; }
+  .search-wrap svg { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-muted); pointer-events: none; }
+  input[type="search"] {
+    width: 100%; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 9px 12px 9px 38px; color: var(--text);
+    font-size: 14px; outline: none; transition: border-color 0.2s;
+  }
+  input[type="search"]:focus { border-color: var(--accent); }
+  input[type="search"]::placeholder { color: var(--text-muted); }
+  select {
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 9px 14px; color: var(--text);
+    font-size: 14px; outline: none; cursor: pointer;
+  }
+  select:focus { border-color: var(--accent); }
+  .count-badge { font-size: 13px; color: var(--text-muted); margin-left: auto; white-space: nowrap; }
+  .count-badge span { color: var(--accent2); font-weight: 600; }
+
+  /* ── 메인 ── */
+  main { padding: 24px; max-width: 1400px; margin: 0 auto; }
+
+  /* ── 시즌 섹션 ── */
+  .season-section { margin-bottom: 40px; }
+  .season-header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .season-title { font-size: 18px; font-weight: 700; color: var(--text); }
+  .season-meta { display: flex; gap: 8px; align-items: center; }
+  .season-count { font-size: 12px; color: var(--text-muted); background: var(--surface2); padding: 3px 10px; border-radius: 20px; }
+  .season-avg { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 20px; }
+  .divider { flex: 1; height: 1px; background: var(--border); }
+
+  /* ── 카드 ── */
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px; transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+    position: relative; overflow: hidden;
+  }
+  .card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    border-radius: 12px 12px 0 0;
+  }
+  .card:hover { transform: translateY(-3px); box-shadow: 0 8px 24px rgba(0,0,0,0.4); border-color: var(--accent); }
+  .card-title { font-size: 13px; font-weight: 600; line-height: 1.4; margin-bottom: 10px; color: var(--text); word-break: keep-all; }
+  .card-note { font-size: 11px; color: var(--text-muted); margin-top: -6px; margin-bottom: 8px; }
+  .card-score { display: flex; align-items: center; gap: 6px; }
+  .score-num { font-size: 22px; font-weight: 800; line-height: 1; }
+  .score-max { font-size: 11px; color: var(--text-muted); }
+  .stars { display: flex; gap: 2px; margin-top: 4px; }
+  .star { font-size: 10px; }
+  .ongoing-badge { font-size: 11px; font-weight: 600; color: var(--ongoing); background: rgba(148,163,184,0.1); padding: 4px 10px; border-radius: 20px; display: inline-block; }
+  .series-badge { font-size: 10px; font-weight: 600; color: var(--accent2); background: rgba(167,139,250,0.1); padding: 2px 8px; border-radius: 20px; display: inline-block; margin-bottom: 6px; }
+  .genre-badge { font-size: 10px; font-weight: 500; color: #7dd3fc; background: rgba(125,211,252,0.1); padding: 2px 8px; border-radius: 20px; display: inline-block; margin-bottom: 6px; margin-left: 4px; }
+
+  /* 점수별 색상 (랭크) */
+  .diamond::before  { background: linear-gradient(90deg, var(--diamond), #a8e8ff, var(--diamond)); background-size: 200% 100%; animation: shimmer 2.5s linear infinite; }
+  .diamond .score-num { color: var(--diamond); text-shadow: 0 0 12px rgba(79,195,247,0.8); }
+  .diamond { border-color: rgba(79,195,247,0.3); box-shadow: 0 0 12px rgba(79,195,247,0.08); }
+
+  .platinum::before { background: linear-gradient(90deg, var(--platinum), #80cbc4, var(--platinum)); background-size: 200% 100%; animation: shimmer 2.5s linear infinite; }
+  .platinum .score-num { color: var(--platinum); text-shadow: 0 0 10px rgba(38,166,154,0.7); }
+  .platinum { border-color: rgba(38,166,154,0.3); box-shadow: 0 0 10px rgba(38,166,154,0.07); }
+
+  .gold::before     { background-color: var(--gold);     } .gold     .score-num { color: var(--gold);     }
+  .silver::before   { background-color: var(--silver);   } .silver   .score-num { color: var(--silver);   }
+  .bronze::before   { background-color: var(--bronze);   } .bronze   .score-num { color: var(--bronze);   }
+  .s-null::before   { background-color: var(--ongoing);  }
+
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  /* ── 로딩 / 에러 ── */
+  .loading, .error-box {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; padding: 80px 20px; text-align: center; gap: 16px;
+  }
+  .spinner {
+    width: 40px; height: 40px; border: 3px solid var(--border);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { color: var(--text-muted); font-size: 14px; }
+  .error-icon { font-size: 40px; }
+  .error-msg { color: var(--text-muted); font-size: 14px; max-width: 400px; line-height: 1.6; }
+  .retry-btn {
+    padding: 10px 24px; background: var(--accent); color: #fff;
+    border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600;
+  }
+  .retry-btn:hover { background: var(--accent2); }
+
+  .empty-season { color: var(--text-muted); font-size: 14px; padding: 20px; text-align: center; background: var(--surface); border: 1px dashed var(--border); border-radius: 12px; }
+  .no-results { text-align: center; padding: 60px 20px; color: var(--text-muted); }
+  .no-results .icon { font-size: 48px; margin-bottom: 12px; }
+
+  /* ── 스크롤바 ── */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: var(--surface); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--accent2); }
+  html { scrollbar-color: var(--accent) var(--surface); scrollbar-width: thin; }
+
+  /* ── 모달 ── */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.85);
+    z-index: 100; display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(4px);
+  }
+  .modal-overlay.hidden { display: none; }
+  .modal-box {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 16px; padding: 20px; max-width: 280px; width: 88%;
+    position: relative; text-align: center;
+  }
+  .modal-close {
+    position: absolute; top: 10px; right: 12px;
+    background: none; border: none; color: var(--text-muted);
+    cursor: pointer; font-size: 22px; line-height: 1;
+  }
+  .modal-close:hover { color: var(--text); }
+  .modal-poster { width: 100%; border-radius: 10px; display: block; }
+  .modal-loading-wrap { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px 0; }
+  .modal-title-text { font-size: 14px; font-weight: 700; margin-top: 14px; line-height: 1.4; word-break: keep-all; }
+  .modal-score-text { font-size: 13px; color: var(--text-muted); margin-top: 6px; }
+  .modal-no-img { color: var(--text-muted); font-size: 13px; padding: 40px 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🎌 나의 <span>애니</span> 감상 기록</h1>
+  <div class="header-stats">
+    <div class="stat"><div class="stat-num" id="total-count">-</div><div class="stat-label">총 시청 편수</div></div>
+    <div class="stat"><div class="stat-num" id="avg-score">-</div><div class="stat-label">평균 점수</div></div>
+    <div class="stat"><div class="stat-num" id="perfect-count">-</div><div class="stat-label">만점 (10점)</div></div>
+    <div class="stat"><div class="stat-num" id="ongoing-count">-</div><div class="stat-label">시청 중</div></div>
+  </div>
+</header>
+
+<div class="tabs" id="tabs">
+  <div class="tab active" data-tab="seasonal">분기별</div>
+  <div class="tab" data-tab="classics">정주행</div>
+  <div class="tab" data-tab="all">전체 보기</div>
+</div>
+
+<div class="controls">
+  <div class="search-wrap">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+    </svg>
+    <input type="search" id="search" placeholder="애니 제목 검색...">
+  </div>
+  <select id="sort">
+    <option value="default">기본 순서</option>
+    <option value="score-desc">점수 높은순</option>
+    <option value="score-asc">점수 낮은순</option>
+    <option value="title">제목순</option>
+  </select>
+  <select id="filter-score">
+    <option value="all">전체 점수</option>
+    <option value="10">10점</option>
+    <option value="9">9점대</option>
+    <option value="8">8점대</option>
+    <option value="7">7점대</option>
+    <option value="6">6점 이하</option>
+    <option value="ongoing">시청 중</option>
+  </select>
+  <select id="filter-genre">
+    <option value="all">전체 장르</option>
+  </select>
+  <div class="count-badge">표시 중: <span id="visible-count">-</span>편</div>
+</div>
+
+<main id="main">
+  <div class="loading">
+    <div class="spinner"></div>
+    <div class="loading-text">데이터 불러오는 중...</div>
+  </div>
+</main>
+
+<div class="modal-overlay hidden" id="modal-overlay">
+  <div class="modal-box">
+    <button class="modal-close" id="modal-close">✕</button>
+    <div id="modal-loading-wrap" class="modal-loading-wrap">
+      <div class="spinner"></div>
+      <div class="loading-text">포스터 불러오는 중...</div>
+    </div>
+    <img class="modal-poster" id="modal-poster" style="display:none" alt="포스터">
+    <div class="modal-no-img" id="modal-no-img" style="display:none">포스터를 찾을 수 없어요 😥</div>
+    <div class="modal-title-text" id="modal-title-text"></div>
+    <div class="modal-score-text" id="modal-score-text"></div>
+  </div>
+</div>
+
+<script>
+// ── Google Sheets CSV URL ────────────────────────────────
+// 사소가 URL을 주면 여기를 교체합니다
+const SHEETS_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSXCVwvZe5nx847wh71a3bnqFZor7j7ziMusE3bTc9zSqjDUT-8gqEg-RzOg3Rhf6f2Iumd5g2zbKcZ/pub?gid=535567308&single=true&output=csv';
+
+// ── 분기 순서 정의 ───────────────────────────────────────
+const QUARTER_ORDER = [
+  '26년 2분기','26년 1분기',
+  '25년 4분기','25년 3분기','25년 2분기','25년 1분기',
+  '24년 4분기','24년 3분기','24년 2분기','24년 1분기',
+  '23년 4분기','23년 3분기','23년 2분기','23년 1분기',
+  '22년 4분기','22년 3분기','22년 2분기',
+];
+
+// ── CSV 파서 ─────────────────────────────────────────────
+function parseCSV(text) {
+  const lines = text.trim().split('\n');
+  const headers = parseCSVLine(lines[0]);
+  return lines.slice(1)
+    .filter(l => l.trim())
+    .map(line => {
+      const vals = parseCSVLine(line);
+      const obj = {};
+      headers.forEach((h, i) => obj[h.trim()] = (vals[i] || '').trim());
+      return obj;
+    });
+}
+
+function parseCSVLine(line) {
+  const result = [];
+  let cur = '', inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { inQ = !inQ; }
+    else if (c === ',' && !inQ) { result.push(cur); cur = ''; }
+    else { cur += c; }
+  }
+  result.push(cur);
+  return result;
+}
+
+// ── CSV → DATA 구조 변환 ─────────────────────────────────
+function buildData(rows) {
+  const seasonalMap = {};
+  const classics = [];
+
+  rows.forEach(row => {
+    const anime = { title: row.title };
+    anime.score = row.score === '' ? null : parseFloat(row.score);
+    if (row.series) anime.series = row.series;
+    if (row.note)   anime.note   = row.note;
+    if (row.genre)  anime.genre  = row.genre;
+
+    if (row.type === 'seasonal') {
+      if (!seasonalMap[row.quarter]) seasonalMap[row.quarter] = [];
+      seasonalMap[row.quarter].push(anime);
+    } else {
+      classics.push(anime);
+    }
+  });
+
+  // 새 분기가 Sheets에 추가되어도 자동 정렬
+  const knownOrder = QUARTER_ORDER.filter(q => seasonalMap[q]);
+  const unknownNew = Object.keys(seasonalMap)
+    .filter(q => !QUARTER_ORDER.includes(q))
+    .sort().reverse();
+
+  return {
+    seasonal: [...unknownNew, ...knownOrder].map(q => ({
+      quarter: q,
+      anime: seasonalMap[q]
+    })),
+    classics
+  };
+}
+
+// ── 유틸 ─────────────────────────────────────────────────
+function scoreClass(s) {
+  if (s === null) return 's-null';
+  if (s >= 9)  return 'diamond';
+  if (s >= 8)  return 'platinum';
+  if (s >= 7)  return 'gold';
+  if (s >= 5)  return 'silver';
+  return 'bronze';
+}
+
+function stars(s) {
+  if (s === null) return '';
+  const f = Math.round(s / 2);
+  return Array.from({length:5}, (_,i) => `<span class="star">${i<f?'★':'☆'}</span>`).join('');
+}
+
+function avgScore(list) {
+  const rated = list.filter(a => a.score !== null);
+  if (!rated.length) return null;
+  return (rated.reduce((s,a) => s+a.score, 0) / rated.length).toFixed(1);
+}
+
+function avgStyle(avg) {
+  if (!avg) return '';
+  const n = parseFloat(avg);
+  if (n >= 9) return 'color:var(--diamond);background:rgba(79,195,247,0.1)';
+  if (n >= 8) return 'color:var(--platinum);background:rgba(38,166,154,0.1)';
+  if (n >= 7) return 'color:var(--gold);background:rgba(200,162,52,0.1)';
+  return 'color:var(--silver);background:rgba(158,158,176,0.1)';
+}
+
+function makeCard(a) {
+  const sc = scoreClass(a.score);
+  return `<div class="card ${sc}" data-title="${a.title.replace(/"/g,'&quot;')}" data-score="${a.score ?? ''}" style="cursor:pointer">
+    <div style="display:flex;flex-wrap:wrap;gap:2px;margin-bottom:${(a.series||a.genre)?'4px':'0'}">
+      ${a.series ? `<span class="series-badge">${a.series}</span>` : ''}
+      ${a.genre  ? `<span class="genre-badge">${a.genre}</span>`  : ''}
+    </div>
+    <div class="card-title">${a.title}</div>
+    ${a.note ? `<div class="card-note">※ ${a.note}</div>` : ''}
+    <div class="card-score">
+      ${a.score !== null
+        ? `<div><div style="display:flex;align-items:baseline;gap:3px">
+             <span class="score-num">${a.score}</span>
+             <span class="score-max">/ 10</span></div>
+           <div class="stars">${stars(a.score)}</div></div>`
+        : `<span class="ongoing-badge">▶ 시청 중</span>`}
+    </div>
+  </div>`;
+}
+
+function makeSection(quarter, list) {
+  if (!list.length) {
+    return `<div class="season-section">
+      <div class="season-header">
+        <div class="season-title">${quarter}</div>
+        <div class="divider"></div>
+      </div>
+      <div class="empty-season">아직 기록 없음</div>
+    </div>`;
+  }
+  const avg = avgScore(list);
+  return `<div class="season-section">
+    <div class="season-header">
+      <div class="season-title">${quarter}</div>
+      <div class="season-meta">
+        <span class="season-count">${list.length}편</span>
+        ${avg ? `<span class="season-avg" style="${avgStyle(avg)}">평균 ${avg}</span>` : ''}
+      </div>
+      <div class="divider"></div>
+    </div>
+    <div class="card-grid">${list.map(makeCard).join('')}</div>
+  </div>`;
+}
+
+// ── 상태 ─────────────────────────────────────────────────
+let DATA = null;
+let currentTab = 'seasonal';
+let searchQ = '', sortMode = 'default', scoreFilter = 'all', genreFilter = 'all';
+
+function calcStats() {
+  const all = [...DATA.seasonal.flatMap(s=>s.anime), ...DATA.classics];
+  const rated = all.filter(a => a.score !== null);
+  document.getElementById('total-count').textContent = rated.length;
+  document.getElementById('avg-score').textContent =
+    (rated.reduce((s,a)=>s+a.score,0)/rated.length).toFixed(1);
+  document.getElementById('perfect-count').textContent = all.filter(a=>a.score===10).length;
+  document.getElementById('ongoing-count').textContent = all.filter(a=>a.score===null).length;
+}
+
+function applyFilter(list) {
+  let r = [...list];
+  if (searchQ) r = r.filter(a => a.title.toLowerCase().includes(searchQ.toLowerCase()));
+  if (scoreFilter === 'ongoing') r = r.filter(a => a.score===null);
+  else if (scoreFilter === '10') r = r.filter(a => a.score===10);
+  else if (scoreFilter === '9')  r = r.filter(a => a.score!==null && a.score>=9 && a.score<10);
+  else if (scoreFilter === '8')  r = r.filter(a => a.score!==null && a.score>=8 && a.score<9);
+  else if (scoreFilter === '7')  r = r.filter(a => a.score!==null && a.score>=7 && a.score<8);
+  else if (scoreFilter === '6')  r = r.filter(a => a.score!==null && a.score<7);
+  if (genreFilter !== 'all') r = r.filter(a => a.genre && a.genre.includes(genreFilter));
+  if (sortMode==='score-desc') r.sort((a,b)=>(b.score??-1)-(a.score??-1));
+  else if (sortMode==='score-asc') r.sort((a,b)=>(a.score??99)-(b.score??99));
+  else if (sortMode==='title') r.sort((a,b)=>a.title.localeCompare(b.title,'ko'));
+  return r;
+}
+
+function populateGenreFilter() {
+  const all = [...DATA.seasonal.flatMap(s=>s.anime), ...DATA.classics];
+  const genres = new Set();
+  all.forEach(a => { if (a.genre) a.genre.split('/').forEach(g => genres.add(g.trim())); });
+  const sel = document.getElementById('filter-genre');
+  [...genres].sort().forEach(g => {
+    const opt = document.createElement('option');
+    opt.value = g; opt.textContent = g;
+    sel.appendChild(opt);
+  });
+}
+
+function render() {
+  if (!DATA) return;
+  const main = document.getElementById('main');
+  let total = 0, html = '';
+  const noResult = `<div class="no-results"><div class="icon">🔍</div>검색 결과 없음</div>`;
+
+  if (currentTab === 'seasonal') {
+    DATA.seasonal.forEach(s => {
+      const f = applyFilter(s.anime);
+      total += f.length;
+      if ((searchQ || scoreFilter!=='all') && !f.length) return;
+      html += makeSection(s.quarter, (searchQ||scoreFilter!=='all') ? f : s.anime);
+    });
+  } else if (currentTab === 'classics') {
+    const f = applyFilter(DATA.classics);
+    total = f.length;
+    html = f.length ? makeSection('정주행 목록', f) : noResult;
+  } else {
+    const all = [
+      ...DATA.seasonal.flatMap(s => s.anime.map(a=>({...a,_q:s.quarter}))),
+      ...DATA.classics.map(a=>({...a,_q:'정주행'}))
+    ];
+    const f = applyFilter(all);
+    total = f.length;
+    if (sortMode !== 'default') {
+      html = f.length ? makeSection(`전체 (${f.length}편)`, f) : noResult;
+    } else {
+      const grp = {};
+      f.forEach(a => { if(!grp[a._q]) grp[a._q]=[]; grp[a._q].push(a); });
+      DATA.seasonal.forEach(s => { if(grp[s.quarter]) html+=makeSection(s.quarter,grp[s.quarter]); });
+      if (grp['정주행']) html += makeSection('정주행', grp['정주행']);
+      if (!html) html = noResult;
+    }
+  }
+
+  main.innerHTML = html || noResult;
+  document.getElementById('visible-count').textContent = total;
+}
+
+// ── 이벤트 ───────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    currentTab = t.dataset.tab;
+    render();
+  });
+});
+document.getElementById('search').addEventListener('input', e => { searchQ=e.target.value.trim(); render(); });
+document.getElementById('sort').addEventListener('change', e => { sortMode=e.target.value; render(); });
+document.getElementById('filter-score').addEventListener('change', e => { scoreFilter=e.target.value; render(); });
+document.getElementById('filter-genre').addEventListener('change', e => { genreFilter=e.target.value; render(); });
+
+// ── 데이터 로드 ──────────────────────────────────────────
+async function loadData() {
+  const main = document.getElementById('main');
+
+  if (SHEETS_CSV_URL === 'SHEETS_URL_HERE') {
+    main.innerHTML = `<div class="error-box">
+      <div class="error-icon">⚙️</div>
+      <div class="error-msg">Google Sheets URL이 아직 연결되지 않았습니다.<br>세팅 완료 후 URL을 업데이트해주세요.</div>
+    </div>`;
+    return;
+  }
+
+  try {
+    const res = await fetch(SHEETS_CSV_URL);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const csv = await res.text();
+    const rows = parseCSV(csv);
+    DATA = buildData(rows);
+    calcStats();
+    populateGenreFilter();
+    render();
+  } catch (e) {
+    main.innerHTML = `<div class="error-box">
+      <div class="error-icon">⚠️</div>
+      <div class="error-msg">데이터를 불러오지 못했습니다.<br>${e.message}</div>
+      <button class="retry-btn" onclick="loadData()">다시 시도</button>
+    </div>`;
+  }
+}
+
+loadData();
+
+// ── 모달 ─────────────────────────────────────────────────
+const modalOverlay  = document.getElementById('modal-overlay');
+const modalPoster   = document.getElementById('modal-poster');
+const modalTitleEl  = document.getElementById('modal-title-text');
+const modalScoreEl  = document.getElementById('modal-score-text');
+const modalLoadWrap = document.getElementById('modal-loading-wrap');
+const modalNoImg    = document.getElementById('modal-no-img');
+
+function openModal(title, score) {
+  modalOverlay.classList.remove('hidden');
+  modalLoadWrap.style.display = 'flex';
+  modalPoster.style.display   = 'none';
+  modalNoImg.style.display    = 'none';
+  modalTitleEl.textContent    = title;
+  modalScoreEl.textContent    = score !== null ? `⭐ ${score} / 10` : '▶ 시청 중';
+}
+
+async function fetchPoster(title) {
+  const query = `query($s:String){Media(search:$s,type:ANIME){coverImage{large}}}`;
+  const res = await fetch('https://graphql.anilist.co', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, variables: { s: title } })
+  });
+  const json = await res.json();
+  return json.data?.Media?.coverImage?.large ?? null;
+}
+
+document.getElementById('main').addEventListener('click', async e => {
+  const card = e.target.closest('[data-title]');
+  if (!card) return;
+  const title    = card.dataset.title;
+  const scoreRaw = card.dataset.score;
+  const score    = scoreRaw === '' ? null : parseFloat(scoreRaw);
+  openModal(title, score);
+  try {
+    const url = await fetchPoster(title);
+    modalLoadWrap.style.display = 'none';
+    if (url) {
+      modalPoster.onload = () => { modalPoster.style.display = 'block'; };
+      modalPoster.onerror = () => { modalNoImg.style.display = 'block'; };
+      modalPoster.src = url;
+    } else {
+      modalNoImg.style.display = 'block';
+    }
+  } catch {
+    modalLoadWrap.style.display = 'none';
+    modalNoImg.style.display    = 'block';
+  }
+});
+
+modalOverlay.addEventListener('click', e => {
+  if (e.target === modalOverlay) modalOverlay.classList.add('hidden');
+});
+document.getElementById('modal-close').addEventListener('click', () => {
+  modalOverlay.classList.add('hidden');
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') modalOverlay.classList.add('hidden');
+});
+</script>
+</body>
+</html>
