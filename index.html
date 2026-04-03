@@ -412,6 +412,7 @@ function makeSection(quarter, list) {
 
 // ── 상태 ─────────────────────────────────────────────────
 let DATA = null;
+let POSTERS = {};   // build-posters.js로 생성된 사전 수집 포스터 맵
 let currentTab = 'seasonal';
 let searchQ = '', sortMode = 'default', scoreFilter = 'all', genreFilter = 'all';
 
@@ -510,6 +511,12 @@ document.getElementById('filter-genre').addEventListener('change', e => { genreF
 async function loadData() {
   const main = document.getElementById('main');
 
+  // posters.json 백그라운드 로드 (실패해도 무시)
+  fetch('./posters.json')
+    .then(r => r.ok ? r.json() : {})
+    .then(data => { POSTERS = data || {}; })
+    .catch(() => {});
+
   if (SHEETS_CSV_URL === 'SHEETS_URL_HERE') {
     main.innerHTML = `<div class="error-box">
       <div class="error-icon">⚙️</div>
@@ -576,6 +583,7 @@ const TITLE_ALIAS = {
   '오키나와 사투리':        '오키나와에서 좋아하게 된 아이가 사투리가 심해서 너무 괴로워',
   '이과 사랑':              '이과가 사랑에 빠졌기에 증명해보았다',
   '야한 이야기 sox':        'Shimoneta',
+  '용족':                   'Long Zu',
 };
 
 async function fetchPoster(title) {
@@ -631,7 +639,10 @@ document.getElementById('main').addEventListener('click', async e => {
   const score    = scoreRaw === '' ? null : parseFloat(scoreRaw);
   openModal(title, score);
   try {
-    const url = await fetchPoster(title);
+    // 1. 사전 수집 맵 우선 사용 (빠름, API 호출 없음)
+    let url = POSTERS[title] ?? null;
+    // 2. 맵에 없으면 라이브 API fallback
+    if (!url) url = await fetchPoster(title);
     modalLoadWrap.style.display = 'none';
     if (url) {
       modalPoster.onload = () => { modalPoster.style.display = 'block'; };
