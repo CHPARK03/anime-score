@@ -190,6 +190,75 @@
   .modal-title-text { font-size: 14px; font-weight: 700; margin-top: 14px; line-height: 1.4; word-break: keep-all; }
   .modal-score-text { font-size: 13px; color: var(--text-muted); margin-top: 6px; }
   .modal-no-img { color: var(--text-muted); font-size: 13px; padding: 40px 0; }
+
+  /* ══ 편집 모드 (로그인 시에만 노출 — 비로그인 화면엔 영향 없음) ══ */
+  /* 편집 컨트롤은 .edit-on 클래스가 body에 있을 때만 보인다. */
+  .edit-only { display: none; }
+  body.edit-on .edit-only { display: inline-flex; }
+
+  /* 우상단 로그인/편집 토글 버튼 — 또렷하게(가시성↑), 기존의 약 2배 크기 */
+  .edit-toggle {
+    position: fixed; top: 12px; right: 12px; z-index: 90;
+    background: var(--accent); border: 2px solid var(--accent2);
+    color: #fff; border-radius: 10px; padding: 12px 24px;
+    font-size: 16px; font-weight: 700; cursor: pointer;
+    box-shadow: 0 4px 14px rgba(124,106,240,0.4); transition: background 0.2s, transform 0.1s;
+  }
+  .edit-toggle:hover { background: var(--accent2); transform: translateY(-1px); }
+  /* 로그인 후(편집 모드 ON): 종료 의미가 드러나게 차분한 색 */
+  body.edit-on .edit-toggle { background: var(--surface2); color: var(--accent2); border-color: var(--accent); }
+
+  /* 카드 위 수정/삭제 아이콘 */
+  .card-edit-actions {
+    position: absolute; top: 6px; right: 6px; z-index: 5;
+    gap: 4px;
+  }
+  .card-edit-actions button {
+    background: rgba(0,0,0,0.55); border: 1px solid var(--border);
+    color: var(--text); border-radius: 6px; width: 26px; height: 26px;
+    font-size: 13px; cursor: pointer; line-height: 1; padding: 0;
+  }
+  .card-edit-actions button:hover { background: var(--accent); border-color: var(--accent); }
+
+  /* 분기 헤더의 편집 버튼들 */
+  .season-edit-btn, .add-quarter-btn {
+    background: var(--surface2); border: 1px solid var(--border);
+    color: var(--text-muted); border-radius: 6px; padding: 4px 10px;
+    font-size: 11px; cursor: pointer; white-space: nowrap;
+  }
+  .season-edit-btn:hover, .add-quarter-btn:hover { color: var(--text); border-color: var(--accent); }
+  .add-quarter-bar { margin-bottom: 20px; }
+
+  /* 편집 폼 모달 */
+  .edit-modal-box {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 16px; padding: 22px; max-width: 420px; width: 92%;
+    position: relative; max-height: 88vh; overflow-y: auto;
+  }
+  .edit-modal-box h3 { font-size: 16px; margin-bottom: 16px; color: var(--text); }
+  .edit-field { margin-bottom: 12px; text-align: left; }
+  .edit-field label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 4px; }
+  .edit-field input, .edit-field select {
+    width: 100%; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 9px 12px; color: var(--text); font-size: 14px; outline: none;
+  }
+  .edit-field input:focus, .edit-field select:focus { border-color: var(--accent); }
+  .edit-actions { display: flex; gap: 10px; margin-top: 18px; }
+  .btn-primary {
+    flex: 1; padding: 10px; background: var(--accent); color: #fff;
+    border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 600;
+  }
+  .btn-primary:hover { background: var(--accent2); }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-secondary {
+    flex: 1; padding: 10px; background: var(--surface2); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 14px;
+  }
+  .btn-secondary:hover { border-color: var(--accent); }
+  .btn-danger { background: #b91c1c; }
+  .btn-danger:hover { background: #dc2626; }
+  .edit-msg { font-size: 12px; color: #f87171; margin-top: 10px; min-height: 16px; text-align: left; }
+  .edit-warn { font-size: 13px; color: #fbbf24; margin: 8px 0 4px; line-height: 1.5; text-align: left; }
 </style>
 </head>
 <body>
@@ -259,12 +328,31 @@
   </div>
 </div>
 
-<script>
-// ── Google Sheets CSV URL ────────────────────────────────
-// 사소가 URL을 주면 여기를 교체합니다
-const SHEETS_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSXCVwvZe5nx847wh71a3bnqFZor7j7ziMusE3bTc9zSqjDUT-8gqEg-RzOg3Rhf6f2Iumd5g2zbKcZ/pub?gid=535567308&single=true&output=csv';
+<!-- ══ 편집 모드 토글 버튼 (우상단, 평소 흐릿) ══ -->
+<button class="edit-toggle" id="edit-toggle">로그인</button>
 
-// ── 분기 순서 정의 ───────────────────────────────────────
+<!-- ══ 편집 폼 모달 (로그인 / 작품 추가·수정 / 분기 추가 / 삭제 확인 공용) ══ -->
+<div class="modal-overlay hidden" id="edit-overlay">
+  <div class="edit-modal-box">
+    <button class="modal-close" id="edit-close">✕</button>
+    <div id="edit-modal-content"></div>
+  </div>
+</div>
+
+<script type="module">
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+// ── Supabase 연결 (관리자가 셋업 후 기입) ─────────────────
+// anon key·URL은 공개 가능(RLS로 쓰기 방어). 환경변수 불필요 — 인라인 상수가 정답.
+// 셋업 가이드: 설계/Supabase_셋업_가이드.md 참조.
+const SUPABASE_URL = 'https://oyrpghzgypwippdllcmc.supabase.co'; // 공개 가능(RLS로 방어)
+const SUPABASE_ANON_KEY = 'sb_publishable_CwztzGpMmHjttD8YEjthSg_1a5ZFlTV'; // publishable(anon) key — 공개 안전, RLS로 쓰기 방어
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const SUPABASE_CONFIGURED = !SUPABASE_URL.startsWith('<') && !SUPABASE_ANON_KEY.startsWith('<');
+
+// ── 분기 순서 fallback (quarters에 없는 비표준 분기명 대비 — §5-1b) ──
+// 1차 정렬은 quarters의 year/season DESC. 아래는 보조 fallback일 뿐.
 const QUARTER_ORDER = [
   '26년 2분기','26년 1분기',
   '25년 4분기','25년 3분기','25년 2분기','25년 1분기',
@@ -273,65 +361,79 @@ const QUARTER_ORDER = [
   '22년 4분기','22년 3분기','22년 2분기',
 ];
 
-// ── CSV 파서 ─────────────────────────────────────────────
-function parseCSV(text) {
-  const lines = text.trim().split('\n');
-  const headers = parseCSVLine(lines[0]);
-  return lines.slice(1)
-    .filter(l => l.trim())
-    .map(line => {
-      const vals = parseCSVLine(line);
-      const obj = {};
-      headers.forEach((h, i) => obj[h.trim()] = (vals[i] || '').trim());
-      return obj;
-    });
+// ── 분기 문자열 → {year, season} 파싱 (마이그레이션 스크립트와 동일 규칙) ──
+function parseQuarter(quarterStr) {
+  const s = String(quarterStr ?? '').trim();
+  const m = s.match(/(\d+)\s*년\s*(\d+)\s*분기/);
+  if (!m) return { year: null, season: null };
+  let year = parseInt(m[1], 10);
+  const season = parseInt(m[2], 10);
+  if (year < 100) year += 2000;
+  if (season < 1 || season > 4) return { year, season: null };
+  return { year, season };
 }
 
-function parseCSVLine(line) {
-  const result = [];
-  let cur = '', inQ = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (c === '"') { inQ = !inQ; }
-    else if (c === ',' && !inQ) { result.push(cur); cur = ''; }
-    else { cur += c; }
-  }
-  result.push(cur);
-  return result;
-}
-
-// ── CSV → DATA 구조 변환 ─────────────────────────────────
-function buildData(rows) {
-  const seasonalMap = {};
+// ── DB rows → DATA 구조 변환 (분기 순서·빈 분기는 quarters 기준 — §5-1a/D4) ──
+// animeRows : anime 테이블 행(type/quarter/year/season 포함)
+// quarterRows: quarters 테이블 행(quarter/year/season). 빈 분기 보존의 진실원천.
+function buildDataFromRows(animeRows, quarterRows) {
+  const seasonalMap = {};   // quarter → [anime...]
   const classics = [];
 
-  rows.forEach(row => {
-    const anime = { title: row.title };
-    anime.score = row.score === '' ? null : parseFloat(row.score);
+  animeRows.forEach(row => {
+    const anime = { id: row.id, title: row.title };
+    anime.score = (row.score === null || row.score === '' || row.score === undefined)
+      ? null : parseFloat(row.score);
     if (row.series) anime.series = row.series;
     if (row.note)   anime.note   = row.note;
     if (row.genre)  anime.genre  = row.genre;
 
     if (row.type === 'seasonal') {
-      if (!seasonalMap[row.quarter]) seasonalMap[row.quarter] = [];
-      seasonalMap[row.quarter].push(anime);
+      const q = row.quarter || '(미지정)';
+      anime.quarter = row.quarter || null;   // 편집 폼 분기 기본값용(makeCard는 미사용 → 렌더 영향 없음)
+      (seasonalMap[q] ||= []).push(anime);
     } else {
       classics.push(anime);
     }
   });
 
-  // 새 분기가 Sheets에 추가되어도 자동 정렬
-  const knownOrder = QUARTER_ORDER.filter(q => seasonalMap[q]);
-  const unknownNew = Object.keys(seasonalMap)
-    .filter(q => !QUARTER_ORDER.includes(q))
-    .sort().reverse();
+  // 분기 순서 = quarters 테이블(year/season DESC). 빈 분기도 여기 있으면 헤더 등장.
+  // quarters에 없는데 anime에만 있는 분기는 뒤에 fallback 삽입(데이터 불일치 방어).
+  const quarterList = (quarterRows || []).map(q => ({
+    quarter: q.quarter,
+    year: (q.year ?? parseQuarter(q.quarter).year),
+    season: (q.season ?? parseQuarter(q.quarter).season),
+  }));
+  const quarterSet = new Set(quarterList.map(q => q.quarter));
+
+  // anime엔 있는데 quarters에 없는 분기 → year/season 파싱해 fallback 추가
+  Object.keys(seasonalMap).forEach(q => {
+    if (q !== '(미지정)' && !quarterSet.has(q)) {
+      const p = parseQuarter(q);
+      quarterList.push({ quarter: q, year: p.year, season: p.season });
+      quarterSet.add(q);
+    }
+  });
+
+  // year/season DESC 정렬 (NULL은 맨 앞 — 기존 unknownNew가 맨 앞이던 동작과 일치, §5-1b)
+  quarterList.sort((a, b) => {
+    const ay = a.year, by = b.year;
+    if (ay === null && by !== null) return -1;     // NULLS FIRST
+    if (by === null && ay !== null) return 1;
+    if (ay !== by) return (by ?? 0) - (ay ?? 0);
+    const as = a.season, bs = b.season;
+    if (as === null && bs !== null) return -1;
+    if (bs === null && as !== null) return 1;
+    return (bs ?? 0) - (as ?? 0);
+  });
 
   return {
-    seasonal: [...unknownNew, ...knownOrder].map(q => ({
-      quarter: q,
-      anime: seasonalMap[q]
+    seasonal: quarterList.map(q => ({
+      quarter: q.quarter,
+      anime: seasonalMap[q.quarter] || [],   // 작품 0개면 빈 배열 → 빈 분기 헤더(makeSection)
     })),
-    classics
+    classics,
+    quarters: quarterList,                   // 편집 UI(분기 추가/삭제)에서 재사용
   };
 }
 
@@ -368,7 +470,7 @@ function avgStyle(avg) {
 
 function makeCard(a) {
   const sc = scoreClass(a.score);
-  return `<div class="card ${sc}" data-title="${a.title.replace(/"/g,'&quot;')}" data-score="${a.score ?? ''}" style="cursor:pointer">
+  return `<div class="card ${sc}" data-id="${a.id ?? ''}" data-title="${a.title.replace(/"/g,'&quot;')}" data-score="${a.score ?? ''}" style="cursor:pointer">
     <div style="display:flex;flex-wrap:wrap;gap:2px;margin-bottom:${(a.series||a.genre)?'4px':'0'}">
       ${a.series ? `<span class="series-badge">${a.series}</span>` : ''}
       ${a.genre  ? `<span class="genre-badge">${a.genre}</span>`  : ''}
@@ -447,6 +549,8 @@ function populateGenreFilter() {
   const genres = new Set();
   all.forEach(a => { if (a.genre) a.genre.split('/').forEach(g => genres.add(g.trim())); });
   const sel = document.getElementById('filter-genre');
+  // 재호출(편집 후 재로드) 시 중복 방지 — "전체 장르"(첫 옵션)만 남기고 비움
+  while (sel.options.length > 1) sel.remove(1);
   [...genres].sort().forEach(g => {
     const opt = document.createElement('option');
     opt.value = g; opt.textContent = g;
@@ -491,6 +595,9 @@ function render() {
 
   main.innerHTML = html || noResult;
   document.getElementById('visible-count').textContent = total;
+
+  // 편집 모드 ON일 때만 편집 컨트롤을 DOM에 후처리 주입(렌더 함수 자체는 불변).
+  if (editMode) injectEditControls();
 }
 
 // ── 이벤트 ───────────────────────────────────────────────
@@ -507,7 +614,7 @@ document.getElementById('sort').addEventListener('change', e => { sortMode=e.tar
 document.getElementById('filter-score').addEventListener('change', e => { scoreFilter=e.target.value; render(); });
 document.getElementById('filter-genre').addEventListener('change', e => { genreFilter=e.target.value; render(); });
 
-// ── 데이터 로드 ──────────────────────────────────────────
+// ── 데이터 로드 (Supabase select 2쿼리 병렬) ─────────────
 async function loadData() {
   const main = document.getElementById('main');
 
@@ -517,29 +624,43 @@ async function loadData() {
     .then(data => { POSTERS = data || {}; })
     .catch(() => {});
 
-  if (SHEETS_CSV_URL === 'SHEETS_URL_HERE') {
+  if (!SUPABASE_CONFIGURED) {
     main.innerHTML = `<div class="error-box">
       <div class="error-icon">⚙️</div>
-      <div class="error-msg">Google Sheets URL이 아직 연결되지 않았습니다.<br>세팅 완료 후 URL을 업데이트해주세요.</div>
+      <div class="error-msg">Supabase 연결이 아직 설정되지 않았습니다.<br>설계/Supabase_셋업_가이드.md 절차에 따라<br>SUPABASE_URL / SUPABASE_ANON_KEY를 기입해주세요.</div>
     </div>`;
     return;
   }
 
   try {
-    const res = await fetch(SHEETS_CSV_URL);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const csv = await res.text();
-    const rows = parseCSV(csv);
-    DATA = buildData(rows);
+    // anime(정렬 포함)와 quarters를 병렬 fetch
+    const [animeRes, quartersRes] = await Promise.all([
+      supabase.from('anime')
+        .select('id,title,score,type,quarter,year,season,series,note,genre,sort_order')
+        .order('year', { ascending: false, nullsFirst: true })
+        .order('season', { ascending: false, nullsFirst: true })
+        .order('sort_order', { ascending: true })
+        .order('id', { ascending: true }),
+      supabase.from('quarters')
+        .select('quarter,year,season')
+        .order('year', { ascending: false })
+        .order('season', { ascending: false }),
+    ]);
+    if (animeRes.error) throw animeRes.error;
+    if (quartersRes.error) throw quartersRes.error;
+
+    DATA = buildDataFromRows(animeRes.data || [], quartersRes.data || []);
     calcStats();
     populateGenreFilter();
     render();
   } catch (e) {
     main.innerHTML = `<div class="error-box">
       <div class="error-icon">⚠️</div>
-      <div class="error-msg">데이터를 불러오지 못했습니다.<br>${e.message}</div>
-      <button class="retry-btn" onclick="loadData()">다시 시도</button>
+      <div class="error-msg">데이터를 불러오지 못했습니다.<br>${e.message || e}</div>
+      <button class="retry-btn" id="retry-btn">다시 시도</button>
     </div>`;
+    const rb = document.getElementById('retry-btn');
+    if (rb) rb.addEventListener('click', loadData);
   }
 }
 
@@ -749,6 +870,361 @@ document.getElementById('modal-close').addEventListener('click', () => {
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') modalOverlay.classList.add('hidden');
 });
+
+// ════════════════════════════════════════════════════════════════════════
+//  편집 모드 (Supabase Auth 단일 관리자 로그인 → RLS가 실제 쓰기 방어)
+// ════════════════════════════════════════════════════════════════════════
+//  ⚠️ 보안 한계 명시: 아래 편집 토글/폼 노출은 'UX 가림막'일 뿐 진짜 보안이
+//     아니다. 공개 사이트라 anon key·로직은 누구나 소스에서 볼 수 있다.
+//     실제 쓰기 차단은 Supabase RLS(auth.uid()=관리자) 가 담당한다.
+//     → 로그인 안 한 사람이 콘솔에서 insert/update/delete 시도해도 RLS가 거부.
+// ════════════════════════════════════════════════════════════════════════
+
+let editMode = false;           // 편집 컨트롤 노출 여부(= 로그인 성공 상태)
+const editOverlay = document.getElementById('edit-overlay');
+const editContent = document.getElementById('edit-modal-content');
+const editToggleBtn = document.getElementById('edit-toggle');
+
+function openEditModal(html) {
+  editContent.innerHTML = html;
+  editOverlay.classList.remove('hidden');
+}
+function closeEditModal() {
+  editOverlay.classList.add('hidden');
+  editContent.innerHTML = '';
+}
+document.getElementById('edit-close').addEventListener('click', closeEditModal);
+editOverlay.addEventListener('click', e => { if (e.target === editOverlay) closeEditModal(); });
+
+// HTML 이스케이프(폼 value 주입 시 XSS·따옴표 깨짐 방지)
+function esc(v) {
+  return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── 로그인 상태 전환 ─────────────────────────────────────
+function setEditMode(on) {
+  editMode = on;
+  document.body.classList.toggle('edit-on', on);
+  editToggleBtn.textContent = on ? '로그아웃' : '로그인';
+  render();   // 편집 컨트롤 주입/제거 반영
+}
+
+// 세션 복원: 이미 로그인돼 있으면 편집 모드 자동 ON
+async function initAuth() {
+  if (!SUPABASE_CONFIGURED) return;
+  const { data } = await supabase.auth.getSession();
+  if (data?.session) setEditMode(true);
+}
+
+// ── 편집 토글 클릭: 로그인 폼 or 로그아웃 ─────────────────
+editToggleBtn.addEventListener('click', async () => {
+  if (!SUPABASE_CONFIGURED) {
+    alert('Supabase가 아직 설정되지 않았습니다. (셋업 가이드 참조)');
+    return;
+  }
+  if (editMode) {
+    // 편집 종료 = 로그아웃
+    await supabase.auth.signOut();
+    setEditMode(false);
+    return;
+  }
+  // 로그인 폼
+  openEditModal(`
+    <h3>관리자 로그인</h3>
+    <div class="edit-field"><label>이메일</label>
+      <input type="email" id="login-email" autocomplete="username" placeholder="admin@example.com"></div>
+    <div class="edit-field"><label>비밀번호</label>
+      <input type="password" id="login-pw" autocomplete="current-password"></div>
+    <div class="edit-msg" id="login-msg"></div>
+    <div class="edit-actions">
+      <button class="btn-secondary" id="login-cancel">취소</button>
+      <button class="btn-primary" id="login-submit">로그인</button>
+    </div>`);
+  document.getElementById('login-cancel').addEventListener('click', closeEditModal);
+  document.getElementById('login-submit').addEventListener('click', doLogin);
+  document.getElementById('login-pw').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+});
+
+async function doLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const pw = document.getElementById('login-pw').value;
+  const msg = document.getElementById('login-msg');
+  const btn = document.getElementById('login-submit');
+  msg.textContent = '';
+  if (!email || !pw) { msg.textContent = '이메일과 비밀번호를 입력하세요.'; return; }
+  btn.disabled = true; btn.textContent = '로그인 중...';
+  const { error } = await supabase.auth.signInWithPassword({ email, password: pw });
+  btn.disabled = false; btn.textContent = '로그인';
+  if (error) { msg.textContent = '로그인 실패: ' + error.message; return; }
+  closeEditModal();
+  setEditMode(true);
+}
+
+// ── DB에서 id로 anime 행 찾기 (현재 DATA 캐시 기준) ──────
+function findAnimeById(id) {
+  const all = [...DATA.seasonal.flatMap(s => s.anime), ...DATA.classics];
+  return all.find(a => String(a.id) === String(id));
+}
+
+// ── CRUD 후 공통: 재로드 → 통계/장르/렌더 갱신 ───────────
+async function reloadData() {
+  const [animeRes, quartersRes] = await Promise.all([
+    supabase.from('anime')
+      .select('id,title,score,type,quarter,year,season,series,note,genre,sort_order')
+      .order('year', { ascending: false, nullsFirst: true })
+      .order('season', { ascending: false, nullsFirst: true })
+      .order('sort_order', { ascending: true })
+      .order('id', { ascending: true }),
+    supabase.from('quarters')
+      .select('quarter,year,season')
+      .order('year', { ascending: false })
+      .order('season', { ascending: false }),
+  ]);
+  if (animeRes.error) throw animeRes.error;
+  if (quartersRes.error) throw quartersRes.error;
+  DATA = buildDataFromRows(animeRes.data || [], quartersRes.data || []);
+  calcStats();
+  populateGenreFilter();
+  render();
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  편집 컨트롤 DOM 후처리 주입 (makeCard/makeSection 함수는 불변)
+// ════════════════════════════════════════════════════════════════════════
+function injectEditControls() {
+  const main = document.getElementById('main');
+
+  // 1) 각 카드에 ✎/🗑 버튼 주입
+  main.querySelectorAll('.card[data-id]').forEach(card => {
+    if (card.querySelector('.card-edit-actions')) return;   // 중복 방지
+    const id = card.dataset.id;
+    if (!id) return;
+    const bar = document.createElement('div');
+    bar.className = 'card-edit-actions edit-only';
+    bar.style.display = 'inline-flex';
+    bar.innerHTML = `<button data-act="edit" data-id="${esc(id)}" title="수정">✎</button>
+                     <button data-act="del" data-id="${esc(id)}" title="삭제">🗑</button>`;
+    card.appendChild(bar);
+  });
+
+  // 2) 각 분기 섹션 헤더에 "작품 추가" / "분기 삭제" 버튼 주입 (seasonal 탭만)
+  if (currentTab === 'seasonal') {
+    main.querySelectorAll('.season-section').forEach(section => {
+      const titleEl = section.querySelector('.season-title');
+      if (!titleEl) return;
+      const quarter = titleEl.textContent.trim();
+      const header = section.querySelector('.season-header');
+      if (!header || header.querySelector('.season-edit-btn')) return;
+      // 분기명이 실제 quarters 목록에 있는 것만 편집 버튼 부여(전체보기 합산 헤더 등 제외)
+      const isRealQuarter = DATA.quarters && DATA.quarters.some(q => q.quarter === quarter);
+      if (!isRealQuarter) return;
+      const meta = document.createElement('div');
+      meta.className = 'season-meta edit-only';
+      meta.style.display = 'inline-flex';
+      meta.style.gap = '6px';
+      meta.innerHTML = `<button class="season-edit-btn" data-act="add-anime" data-quarter="${esc(quarter)}">+ 작품 추가</button>
+                        <button class="season-edit-btn" data-act="del-quarter" data-quarter="${esc(quarter)}">분기 삭제</button>`;
+      const divider = header.querySelector('.divider');
+      header.insertBefore(meta, divider);
+    });
+  }
+
+  // 3) seasonal/classics 탭 상단에 "+ 새 분기 추가" / "+ 정주행 작품 추가" 바
+  if ((currentTab === 'seasonal' || currentTab === 'classics') && !main.querySelector('.add-quarter-bar')) {
+    const bar = document.createElement('div');
+    bar.className = 'add-quarter-bar edit-only';
+    bar.style.display = 'block';
+    if (currentTab === 'seasonal') {
+      bar.innerHTML = `<button class="add-quarter-btn" data-act="add-quarter">+ 새 분기 추가</button>`;
+    } else {
+      bar.innerHTML = `<button class="add-quarter-btn" data-act="add-classic">+ 정주행 작품 추가</button>`;
+    }
+    main.insertBefore(bar, main.firstChild);
+  }
+}
+
+// ── 편집 컨트롤 클릭 위임 (main 영역) ────────────────────
+document.getElementById('main').addEventListener('click', e => {
+  const btn = e.target.closest('[data-act]');
+  if (!btn || !editMode) return;
+  e.stopPropagation();          // 포스터 모달 핸들러로 전파 차단
+  e.preventDefault();
+  const act = btn.dataset.act;
+  if (act === 'edit')         openAnimeForm(findAnimeById(btn.dataset.id));
+  else if (act === 'del')     confirmDeleteAnime(findAnimeById(btn.dataset.id));
+  else if (act === 'add-anime')   openAnimeForm(null, { type: 'seasonal', quarter: btn.dataset.quarter });
+  else if (act === 'add-classic') openAnimeForm(null, { type: 'classic' });
+  else if (act === 'add-quarter') openQuarterForm();
+  else if (act === 'del-quarter') confirmDeleteQuarter(btn.dataset.quarter);
+}, true);   // 캡처 단계 — 포스터 모달 핸들러(버블)보다 먼저 가로채 stopPropagation
+
+// ════════════════════════════════════════════════════════════════════════
+//  작품 추가/수정 폼 (seasonal·classic 공용, series 필드 포함 — Q2)
+// ════════════════════════════════════════════════════════════════════════
+function openAnimeForm(anime, preset) {
+  const isEdit = !!anime;
+  const a = anime || {};
+  const type = isEdit ? (DATA.classics.includes(a) ? 'classic' : 'seasonal')
+                      : (preset?.type || 'seasonal');
+  const presetQuarter = preset?.quarter || a.quarter || '';
+
+  // seasonal이면 분기 선택 드롭다운(quarters 목록), classic이면 분기 없음
+  const quarterOptions = (DATA.quarters || [])
+    .map(q => `<option value="${esc(q.quarter)}" ${q.quarter === presetQuarter ? 'selected' : ''}>${esc(q.quarter)}</option>`)
+    .join('');
+
+  openEditModal(`
+    <h3>${isEdit ? '작품 수정' : (type === 'classic' ? '정주행 작품 추가' : '작품 추가')}</h3>
+    <div class="edit-field"><label>제목 *</label>
+      <input type="text" id="f-title" value="${esc(a.title || '')}"></div>
+    <div class="edit-field"><label>점수 (0~10, 비우면 '시청 중')</label>
+      <input type="number" id="f-score" step="0.1" min="0" max="10" value="${a.score ?? ''}"></div>
+    ${type === 'seasonal' ? `
+    <div class="edit-field"><label>분기 *</label>
+      <select id="f-quarter">${quarterOptions || '<option value="">(분기를 먼저 추가하세요)</option>'}</select></div>` : ''}
+    <div class="edit-field"><label>시리즈 (선택)</label>
+      <input type="text" id="f-series" value="${esc(a.series || '')}"></div>
+    <div class="edit-field"><label>노트 (선택)</label>
+      <input type="text" id="f-note" value="${esc(a.note || '')}"></div>
+    <div class="edit-field"><label>장르 (슬래시 구분, 예: 로맨스/코미디)</label>
+      <input type="text" id="f-genre" value="${esc(a.genre || '')}"></div>
+    <div class="edit-msg" id="f-msg"></div>
+    <div class="edit-actions">
+      <button class="btn-secondary" id="f-cancel">취소</button>
+      <button class="btn-primary" id="f-save">저장</button>
+    </div>`);
+
+  document.getElementById('f-cancel').addEventListener('click', closeEditModal);
+  document.getElementById('f-save').addEventListener('click', () => saveAnimeForm(isEdit ? a.id : null, type));
+}
+
+async function saveAnimeForm(id, type) {
+  const msg = document.getElementById('f-msg');
+  const btn = document.getElementById('f-save');
+  msg.textContent = '';
+  const title = document.getElementById('f-title').value.trim();
+  if (!title) { msg.textContent = '제목은 필수입니다.'; return; }
+
+  const scoreRaw = document.getElementById('f-score').value.trim();
+  let score = null;
+  if (scoreRaw !== '') {
+    score = parseFloat(scoreRaw);
+    if (Number.isNaN(score) || score < 0 || score > 10) { msg.textContent = '점수는 0~10 사이여야 합니다.'; return; }
+  }
+
+  const series = document.getElementById('f-series').value.trim() || null;
+  const note = document.getElementById('f-note').value.trim() || null;
+  const genre = document.getElementById('f-genre').value.trim() || null;
+
+  const payload = { title, score, type, series, note, genre };
+  if (type === 'seasonal') {
+    const quarter = document.getElementById('f-quarter').value;
+    if (!quarter) { msg.textContent = '분기를 선택하세요(없으면 먼저 분기를 추가).'; return; }
+    const p = parseQuarter(quarter);
+    payload.quarter = quarter;
+    payload.year = p.year;
+    payload.season = p.season;
+  } else {
+    payload.quarter = null; payload.year = null; payload.season = null;
+  }
+
+  btn.disabled = true; btn.textContent = '저장 중...';
+  let error;
+  if (id) ({ error } = await supabase.from('anime').update(payload).eq('id', id));
+  else    ({ error } = await supabase.from('anime').insert(payload));
+  btn.disabled = false; btn.textContent = '저장';
+  if (error) { msg.textContent = '저장 실패: ' + error.message; return; }
+  closeEditModal();
+  try { await reloadData(); } catch (e) { alert('재로드 실패: ' + (e.message || e)); }
+}
+
+// ── 작품 삭제 (2단 확인 — Q3) ────────────────────────────
+function confirmDeleteAnime(anime) {
+  if (!anime) return;
+  openEditModal(`
+    <h3>작품 삭제</h3>
+    <div class="edit-warn">⚠️ "<b>${esc(anime.title)}</b>"를 삭제합니다.<br>이 작업은 복구할 수 없습니다.</div>
+    <div class="edit-actions">
+      <button class="btn-secondary" id="d-cancel">취소</button>
+      <button class="btn-primary btn-danger" id="d-confirm">삭제</button>
+    </div>`);
+  document.getElementById('d-cancel').addEventListener('click', closeEditModal);
+  document.getElementById('d-confirm').addEventListener('click', async () => {
+    const { error } = await supabase.from('anime').delete().eq('id', anime.id);
+    if (error) { alert('삭제 실패: ' + error.message); return; }
+    closeEditModal();
+    try { await reloadData(); } catch (e) { alert('재로드 실패: ' + (e.message || e)); }
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  분기 추가/삭제 (quarters 테이블 행 조작 — 빈 분기 보존 D4)
+// ════════════════════════════════════════════════════════════════════════
+function openQuarterForm() {
+  openEditModal(`
+    <h3>새 분기 추가</h3>
+    <div class="edit-field"><label>연도 (예: 2026)</label>
+      <input type="number" id="q-year" min="2000" max="2099" placeholder="2026"></div>
+    <div class="edit-field"><label>분기 (1~4)</label>
+      <select id="q-season"><option value="1">1분기</option><option value="2">2분기</option>
+        <option value="3">3분기</option><option value="4">4분기</option></select></div>
+    <div class="edit-msg" id="q-msg"></div>
+    <div class="edit-actions">
+      <button class="btn-secondary" id="q-cancel">취소</button>
+      <button class="btn-primary" id="q-save">추가</button>
+    </div>`);
+  document.getElementById('q-cancel').addEventListener('click', closeEditModal);
+  document.getElementById('q-save').addEventListener('click', saveQuarterForm);
+}
+
+async function saveQuarterForm() {
+  const msg = document.getElementById('q-msg');
+  const btn = document.getElementById('q-save');
+  msg.textContent = '';
+  const year = parseInt(document.getElementById('q-year').value, 10);
+  const season = parseInt(document.getElementById('q-season').value, 10);
+  if (Number.isNaN(year) || year < 2000 || year > 2099) { msg.textContent = '연도를 올바르게 입력하세요(2000~2099).'; return; }
+  // "26년 2분기" 형식 — 기존 표기와 동일하게 2자리 연도 사용
+  const yy = String(year).slice(-2);
+  const quarter = `${yy}년 ${season}분기`;
+  if (DATA.quarters && DATA.quarters.some(q => q.quarter === quarter)) {
+    msg.textContent = '이미 존재하는 분기입니다.'; return;
+  }
+  btn.disabled = true; btn.textContent = '추가 중...';
+  const { error } = await supabase.from('quarters').insert({ quarter, year, season });
+  btn.disabled = false; btn.textContent = '추가';
+  if (error) { msg.textContent = '추가 실패: ' + error.message; return; }
+  closeEditModal();
+  try { await reloadData(); } catch (e) { alert('재로드 실패: ' + (e.message || e)); }
+}
+
+// ── 분기 삭제 (2단 확인 + "N편 삭제됩니다" 표시 — Q3) ────
+function confirmDeleteQuarter(quarter) {
+  const section = (DATA.seasonal || []).find(s => s.quarter === quarter);
+  const count = section ? section.anime.length : 0;
+  openEditModal(`
+    <h3>분기 삭제</h3>
+    <div class="edit-warn">⚠️ "<b>${esc(quarter)}</b>" 분기를 삭제합니다.<br>
+      이 분기의 <b>작품 ${count}편이 함께 삭제</b>됩니다.<br>복구할 수 없습니다.</div>
+    <div class="edit-actions">
+      <button class="btn-secondary" id="dq-cancel">취소</button>
+      <button class="btn-primary btn-danger" id="dq-confirm">${count}편과 분기 삭제</button>
+    </div>`);
+  document.getElementById('dq-cancel').addEventListener('click', closeEditModal);
+  document.getElementById('dq-confirm').addEventListener('click', async () => {
+    // 1) 해당 분기 작품 삭제 → 2) 분기 메타 삭제
+    const delAnime = await supabase.from('anime').delete().eq('quarter', quarter);
+    if (delAnime.error) { alert('작품 삭제 실패: ' + delAnime.error.message); return; }
+    const delQ = await supabase.from('quarters').delete().eq('quarter', quarter);
+    if (delQ.error) { alert('분기 삭제 실패: ' + delQ.error.message); return; }
+    closeEditModal();
+    try { await reloadData(); } catch (e) { alert('재로드 실패: ' + (e.message || e)); }
+  });
+}
+
+// 세션 복원 시도 (이미 로그인돼 있으면 편집 모드 자동 ON)
+initAuth();
 </script>
 </body>
 </html>

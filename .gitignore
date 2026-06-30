@@ -1,3 +1,8 @@
 .vercel
 .DS_Store
 Thumbs.db
+
+# 비밀(평문 커밋 금지) — DB 패스워드/service_role key 등은 코드/깃에 절대 넣지 않음
+.env
+.env.local
+.env.*
