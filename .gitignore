@@ -6,3 +6,6 @@ Thumbs.db
 .env
 .env.local
 .env.*
+
+# DB 백업본(라이브 export) — 레포에 올리지 않음
+backup_*.csv

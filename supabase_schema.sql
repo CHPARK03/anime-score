@@ -23,7 +23,6 @@ create table if not exists public.anime (
   quarter     text,                               -- "25년 4분기" (seasonal만)
   year        int,                                -- 정렬용 (예: 2025)
   season      int check (season between 1 and 4), -- 정렬용 (1~4)
-  series      text,
   note        text,
   genre       text,                               -- "로맨스/코미디" 슬래시 구분
   sort_order  int not null default 0,             -- 분기 내 수동 정렬용(선택)

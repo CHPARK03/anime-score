@@ -5,7 +5,7 @@
  * 애니 점수표를 Supabase로 이관하기 위한 "정규화 CSV 생성" 스크립트.
  *
  * 입력 : 애니점수data - data_template.csv  (관리자 확정 최신 단일 소스)
- *        헤더 = title,score,type,quarter,series,note,genre
+ *        헤더 = title,score,type,quarter,series,note,genre (series는 무시 — 후속 제거됨)
  * 출력 : anime_seed.csv      (anime 테이블 import용 — type/score 정규화, year/season 파싱)
  *        quarters_seed.csv   (quarters 메타 테이블 import용 — distinct 분기 + year/season)
  *        seed_insert.sql     (★ 권장 적재 경로 — SQL Editor에 붙여 Run. 빈값=NULL 처리)
@@ -140,11 +140,11 @@ function buildSeedSQL(animeNorm, quarterRows, counts) {
   L.push('-- ── anime (seasonal + classic) ──');
 
   // anime multi-row INSERT
-  const aCols = 'title, score, type, quarter, year, season, series, note, genre';
+  const aCols = 'title, score, type, quarter, year, season, note, genre';
   const aVals = animeNorm.map(a =>
     `  (${sqlText(a.title)}, ${sqlNum(a.score)}, ${sqlText(a.type)}, ` +
     `${sqlText(a.quarter)}, ${sqlNum(a.year)}, ${sqlNum(a.season)}, ` +
-    `${sqlText(a.series)}, ${sqlText(a.note)}, ${sqlText(a.genre)})`
+    `${sqlText(a.note)}, ${sqlText(a.genre)})`
   );
   L.push(`insert into public.anime (${aCols}) values`);
   L.push(aVals.join(',\n') + ';');
@@ -187,7 +187,6 @@ function main() {
 
     const type = normalizeType(row.type);
     const score = normalizeScore(row.score);
-    const series = String(row.series ?? '').trim() || null;
     const note = String(row.note ?? '').trim() || null;
     const genre = String(row.genre ?? '').trim() || null;
 
@@ -216,13 +215,12 @@ function main() {
       quarter: quarter ?? '',
       year: year === null ? '' : year,
       season: season === null ? '' : season,
-      series: series ?? '',
       note: note ?? '',
       genre: genre ?? '',
       sort_order: '',          // 빈값 → DB default 0
     });
     // SQL용: null 보존(빈 int/score는 NULL로 나가야 함)
-    animeNorm.push({ title, score, type, quarter, year, season, series, note, genre });
+    animeNorm.push({ title, score, type, quarter, year, season, note, genre });
   }
 
   // ── quarters 정렬(year/season DESC) — quarters_seed.csv 가독성용 ──────
@@ -237,7 +235,7 @@ function main() {
   const distinctTypes = [...new Set(animeRows.map(r => r.type))].sort();
 
   // ── CSV 쓰기 ─────────────────────────────────────────────────────────
-  const animeHeaders = ['title', 'score', 'type', 'quarter', 'year', 'season', 'series', 'note', 'genre', 'sort_order'];
+  const animeHeaders = ['title', 'score', 'type', 'quarter', 'year', 'season', 'note', 'genre', 'sort_order'];
   const quarterHeaders = ['quarter', 'year', 'season'];
 
   fs.writeFileSync(OUT_ANIME, toCSV(animeHeaders, animeRows), 'utf8');

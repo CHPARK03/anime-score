@@ -185,6 +185,28 @@ select count(*) from anime where type='seasonal' and (year is null or season is 
 
 ---
 
+## series 컬럼 제거 (후속 작업 — series 기능 삭제)
+
+> series(시리즈) 기능을 코드·DB에서 제거하는 작업. **순서가 중요** — 코드 배포와 컬럼 DROP을 같은 시점에(C4).
+
+### ⚠️ 절대 금지: seed 재적재
+- `anime_seed.csv` / `seed_insert.sql`로 **재적재하면 사이트에서 편집한 점수(8.5 등)가 원본 seed로 덮여 손실된다.**
+- seed/CSV의 series 제거는 **"향후 새 프로젝트용 파일 정합"일 뿐.** 현재 운영 중인 DB에는 **재적재 금지**.
+- 현 DB에는 **`series` 컬럼만 DROP**(데이터 행·점수는 그대로 보존).
+
+### 절차 (관리자 직접 — 라이브 DB)
+1. **(완료) 백업**: 관리자가 이미 `backup_anime_rows.csv`로 export 보관. (필요 시 SQL Editor에서 `select * from public.anime;` 결과 보관)
+2. **series 없는 코드 배포** (series를 select하지 않는 index.html) — 컬럼이 사라진 뒤 코드가 series를 조회하면 에러나므로, 배포와 DROP을 **연이어** 진행.
+3. **[관리자 승인 필요] DESTRUCTIVE — 컬럼 DROP** (SQL Editor에서 직접 실행):
+   ```sql
+   -- ⚠️ 기존 series 데이터(Fate 11건 등) 영구 손실. 백업(1단계) 확인 후 실행.
+   alter table public.anime drop column if exists series;
+   ```
+   - 이 DROP은 **컬럼만 제거**한다. 행·점수·다른 컬럼은 그대로. **재적재 아님.**
+   - RLS·트리거엔 series 의존 없음 → 단순 drop 안전.
+
+---
+
 ## 트러블슈팅
 
 | 증상 | 원인/해결 |

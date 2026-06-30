@@ -117,7 +117,6 @@
   .stars { display: flex; gap: 2px; margin-top: 4px; }
   .star { font-size: 10px; }
   .ongoing-badge { font-size: 11px; font-weight: 600; color: var(--ongoing); background: rgba(148,163,184,0.1); padding: 4px 10px; border-radius: 20px; display: inline-block; }
-  .series-badge { font-size: 10px; font-weight: 600; color: var(--accent2); background: rgba(167,139,250,0.1); padding: 2px 8px; border-radius: 20px; display: inline-block; margin-bottom: 6px; }
   .genre-badge { font-size: 10px; font-weight: 500; color: #7dd3fc; background: rgba(125,211,252,0.1); padding: 2px 8px; border-radius: 20px; display: inline-block; margin-bottom: 6px; margin-left: 4px; }
 
   /* 점수별 색상 (랭크) */
@@ -384,7 +383,6 @@ function buildDataFromRows(animeRows, quarterRows) {
     const anime = { id: row.id, title: row.title };
     anime.score = (row.score === null || row.score === '' || row.score === undefined)
       ? null : parseFloat(row.score);
-    if (row.series) anime.series = row.series;
     if (row.note)   anime.note   = row.note;
     if (row.genre)  anime.genre  = row.genre;
 
@@ -471,8 +469,7 @@ function avgStyle(avg) {
 function makeCard(a) {
   const sc = scoreClass(a.score);
   return `<div class="card ${sc}" data-id="${a.id ?? ''}" data-title="${a.title.replace(/"/g,'&quot;')}" data-score="${a.score ?? ''}" style="cursor:pointer">
-    <div style="display:flex;flex-wrap:wrap;gap:2px;margin-bottom:${(a.series||a.genre)?'4px':'0'}">
-      ${a.series ? `<span class="series-badge">${a.series}</span>` : ''}
+    <div style="display:flex;flex-wrap:wrap;gap:2px;margin-bottom:${a.genre?'4px':'0'}">
       ${a.genre  ? `<span class="genre-badge">${a.genre}</span>`  : ''}
     </div>
     <div class="card-title">${a.title}</div>
@@ -636,7 +633,7 @@ async function loadData() {
     // anime(정렬 포함)와 quarters를 병렬 fetch
     const [animeRes, quartersRes] = await Promise.all([
       supabase.from('anime')
-        .select('id,title,score,type,quarter,year,season,series,note,genre,sort_order')
+        .select('id,title,score,type,quarter,year,season,note,genre,sort_order')
         .order('year', { ascending: false, nullsFirst: true })
         .order('season', { ascending: false, nullsFirst: true })
         .order('sort_order', { ascending: true })
@@ -835,6 +832,101 @@ async function fetchPoster(title) {
   return url;
 }
 
+// ════════════════════════════════════════════════════════════════════════
+//  장르 자동완성 (AniList genres+tags → 한글 슬래시 표기로 정규화)
+// ════════════════════════════════════════════════════════════════════════
+//  매핑 우변은 anime_seed.csv 실측 34개 토큰 allowlist로만 한정(닫힌 집합 — G4).
+//  CSV에 없는 토큰(메카·스릴러 등)은 매핑하지 않아 자동으로 버려진다.
+//  실측(2026-07-01): AniList genres=문자열배열, tags={name,rank,isMediaSpoiler},
+//  rate limit x-ratelimit-limit:30/분. 편집 1회성이라 여유. 429는 안내 처리.
+
+// AniList 영어 genres → 한글(우변 전부 CSV 실측 토큰)
+const GENRE_MAP = {
+  'Action':'액션', 'Adventure':'모험', 'Comedy':'코미디', 'Drama':'드라마',
+  'Romance':'로맨스', 'Sci-Fi':'SF', 'Fantasy':'판타지', 'Slice of Life':'일상',
+  'Mystery':'미스터리', 'Supernatural':'오컬트', 'Sports':'스포츠', 'Music':'음악',
+  'Psychological':'심리', 'Horror':'공포', 'Ecchi':'성인', 'Mahou Shoujo':'마법소녀',
+  // Mecha·Thriller 등은 CSV 0건 → 의도적으로 매핑 안 함(버려짐)
+};
+
+// AniList 세분 tags → 한글(우변 전부 CSV 실측 토큰). rank로 신뢰도 필터.
+const TAG_MAP = {
+  'School':'학원', 'School Life':'학원', 'Isekai':'이세계', 'Harem':'하렘',
+  'Idol':'아이돌', 'Zombie':'좀비', 'Super Power':'초능력', 'Superpower':'초능력',
+  'Magic':'마법', 'Video Games':'게임', 'Gaming':'게임', 'Historical':'역사',
+  'Gambling':'도박', 'Family Life':'가족', 'Found Family':'가족', 'Parenthood':'가족',
+  'Espionage':'스파이', 'Cosplay':'코스프레', 'Idols (Female)':'아이돌', 'Idols (Male)':'아이돌',
+  'Boxing':'격투', 'Martial Arts':'격투', 'Economics':'경제', 'Coming of Age':'청춘',
+  'Work':'직장', 'Workplace':'직장', 'Occult':'오컬트', 'Heroes':'히어로', 'Super Robot':'히어로',
+  'Sports':'스포츠', 'Idol':'아이돌',
+};
+
+// 앱에서 흔한 순서(가중 정렬용) — 앞일수록 우선 노출
+const GENRE_WEIGHT = ['로맨스','코미디','학원','판타지','액션','드라마','심리','SF','일상',
+  '이세계','하렘','미스터리','공포','판타지','스포츠','음악','모험','초능력','마법',
+  '게임','역사','아이돌','스파이','도박','가족','오컬트','히어로','마법소녀','성인',
+  '코스프레','격투','경제','청춘','직장','좀비'];
+
+// CSV 실측 allowlist(우변 검증용) — 이 집합 밖 토큰은 결과에서 제외
+const GENRE_ALLOWLIST = new Set(Object.values(GENRE_MAP).concat(Object.values(TAG_MAP)));
+
+const TAG_RANK_MIN = 60;   // tag 신뢰도 임계값(C1 추천)
+const GENRE_MAX = 5;        // 최대 장르 개수(C1 추천 4~5)
+
+// genres(영) + tags(영,rank) → 한글 슬래시 표기로 정규화
+function mapGenres(genres, tags) {
+  const out = [];
+  const seen = new Set();
+  const add = (ko) => { if (ko && GENRE_ALLOWLIST.has(ko) && !seen.has(ko)) { seen.add(ko); out.push(ko); } };
+
+  (genres || []).forEach(g => add(GENRE_MAP[g]));
+  (tags || [])
+    .filter(t => t.rank >= TAG_RANK_MIN && !t.isMediaSpoiler)
+    .sort((a, b) => b.rank - a.rank)
+    .forEach(t => add(TAG_MAP[t.name]));
+
+  // 앱 흔한 순서 가중 정렬 → 상위 GENRE_MAX개
+  out.sort((a, b) => {
+    const ia = GENRE_WEIGHT.indexOf(a), ib = GENRE_WEIGHT.indexOf(b);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+  });
+  return out.slice(0, GENRE_MAX).join('/');
+}
+
+// 제목 → AniList genres+tags 조회 (fetchPoster와 동일 3단계 fallback 경로 재사용)
+async function fetchGenres(title) {
+  const query = `query($s:String){Media(search:$s,type:ANIME){genres tags{name rank isMediaSpoiler}}}`;
+  title = TITLE_ALIAS[title] ?? title;
+
+  async function searchAL(q) {
+    const res = await fetch('https://graphql.anilist.co', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, variables: { s: q } })
+    });
+    if (res.status === 429) throw new Error('AniList 요청 한도 초과(429) — 잠시 후 다시 시도');
+    const json = await res.json();
+    const m = json.data?.Media;
+    return m ? { genres: m.genres, tags: m.tags } : null;
+  }
+  async function translate(q) {
+    try {
+      const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(q)}&langpair=ko|en`);
+      const json = await res.json();
+      return json.responseData?.translatedText ?? null;
+    } catch { return null; }
+  }
+  function strip(t) { return t.replace(/\s*\d+기$|\s*\d+쿨$|\s*시즌\s*\d+$|\s*Part\s*\d+$/i, '').trim(); }
+
+  let r = await searchAL(title);
+  if (r) return r;
+  const stripped = strip(title);
+  if (stripped !== title) { r = await searchAL(stripped); if (r) return r; }
+  const en = await translate(stripped || title);
+  if (en) r = await searchAL(en);
+  return r;
+}
+
 document.getElementById('main').addEventListener('click', async e => {
   const card = e.target.closest('[data-title]');
   if (!card) return;
@@ -971,7 +1063,7 @@ function findAnimeById(id) {
 async function reloadData() {
   const [animeRes, quartersRes] = await Promise.all([
     supabase.from('anime')
-      .select('id,title,score,type,quarter,year,season,series,note,genre,sort_order')
+      .select('id,title,score,type,quarter,year,season,note,genre,sort_order')
       .order('year', { ascending: false, nullsFirst: true })
       .order('season', { ascending: false, nullsFirst: true })
       .order('sort_order', { ascending: true })
@@ -1060,7 +1152,7 @@ document.getElementById('main').addEventListener('click', e => {
 }, true);   // 캡처 단계 — 포스터 모달 핸들러(버블)보다 먼저 가로채 stopPropagation
 
 // ════════════════════════════════════════════════════════════════════════
-//  작품 추가/수정 폼 (seasonal·classic 공용, series 필드 포함 — Q2)
+//  작품 추가/수정 폼 (seasonal·classic 공용)
 // ════════════════════════════════════════════════════════════════════════
 function openAnimeForm(anime, preset) {
   const isEdit = !!anime;
@@ -1083,12 +1175,13 @@ function openAnimeForm(anime, preset) {
     ${type === 'seasonal' ? `
     <div class="edit-field"><label>분기 *</label>
       <select id="f-quarter">${quarterOptions || '<option value="">(분기를 먼저 추가하세요)</option>'}</select></div>` : ''}
-    <div class="edit-field"><label>시리즈 (선택)</label>
-      <input type="text" id="f-series" value="${esc(a.series || '')}"></div>
     <div class="edit-field"><label>노트 (선택)</label>
       <input type="text" id="f-note" value="${esc(a.note || '')}"></div>
     <div class="edit-field"><label>장르 (슬래시 구분, 예: 로맨스/코미디)</label>
-      <input type="text" id="f-genre" value="${esc(a.genre || '')}"></div>
+      <div style="display:flex;gap:8px">
+        <input type="text" id="f-genre" value="${esc(a.genre || '')}" style="flex:1">
+        <button type="button" class="btn-secondary" id="f-genre-auto" style="flex:0 0 auto;white-space:nowrap;padding:9px 14px">장르 자동</button>
+      </div></div>
     <div class="edit-msg" id="f-msg"></div>
     <div class="edit-actions">
       <button class="btn-secondary" id="f-cancel">취소</button>
@@ -1097,6 +1190,32 @@ function openAnimeForm(anime, preset) {
 
   document.getElementById('f-cancel').addEventListener('click', closeEditModal);
   document.getElementById('f-save').addEventListener('click', () => saveAnimeForm(isEdit ? a.id : null, type));
+  document.getElementById('f-genre-auto').addEventListener('click', autoFillGenre);
+}
+
+// "장르 자동" 버튼 — 현재 제목으로 AniList 조회 → 한글 장르 정규화 → #f-genre 덮어쓰기(C2)
+async function autoFillGenre() {
+  const msg = document.getElementById('f-msg');
+  const btn = document.getElementById('f-genre-auto');
+  const genreInput = document.getElementById('f-genre');
+  const title = document.getElementById('f-title').value.trim();
+  msg.textContent = '';
+  if (!title) { msg.textContent = '제목을 먼저 입력하세요.'; return; }
+
+  btn.disabled = true; btn.textContent = '조회 중...';
+  try {
+    const r = await fetchGenres(title);
+    const result = r ? mapGenres(r.genres, r.tags) : '';
+    if (result) {
+      genreInput.value = result;   // C2: 항상 덮어쓰기(빈칸 조건 없음)
+    } else {
+      msg.textContent = '장르 자동 실패 — 수동 입력하세요.';
+    }
+  } catch (e) {
+    msg.textContent = (e.message || '장르 자동 실패') + ' — 수동 입력하세요.';
+  } finally {
+    btn.disabled = false; btn.textContent = '장르 자동';
+  }
 }
 
 async function saveAnimeForm(id, type) {
@@ -1113,11 +1232,10 @@ async function saveAnimeForm(id, type) {
     if (Number.isNaN(score) || score < 0 || score > 10) { msg.textContent = '점수는 0~10 사이여야 합니다.'; return; }
   }
 
-  const series = document.getElementById('f-series').value.trim() || null;
   const note = document.getElementById('f-note').value.trim() || null;
   const genre = document.getElementById('f-genre').value.trim() || null;
 
-  const payload = { title, score, type, series, note, genre };
+  const payload = { title, score, type, note, genre };
   if (type === 'seasonal') {
     const quarter = document.getElementById('f-quarter').value;
     if (!quarter) { msg.textContent = '분기를 선택하세요(없으면 먼저 분기를 추가).'; return; }
