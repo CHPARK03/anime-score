@@ -275,6 +275,8 @@
   .genre-cand-title { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.3; }
   .genre-cand-native { font-size: 11px; color: var(--text-muted); }
   .genre-cand-preview { font-size: 11px; color: var(--accent2); margin-top: 3px; }
+  /* 직접 검색(P6) — 0건 시 노출되어 다른 표기로 재검색 */
+  .direct-search { margin-top: 10px; padding: 10px; border: 1px dashed var(--accent); border-radius: 8px; background: rgba(124,106,240,0.06); }
   /* 후보 소스 배지(AniList/TMDB) */
   .cand-src { font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 20px; margin-right: 4px; vertical-align: middle; }
   .cand-src.anilist { color: #a78bfa; background: rgba(167,139,250,0.15); }
@@ -952,11 +954,14 @@ function mapGenres(genres, tags) {
   return out.slice(0, GENRE_MAX).join('/');
 }
 
-// ── AniList 후보 조회 (Page 다중검색) → raw media[] ─────────────────────
-// 입력 전략(C8): TITLE_ALIAS → 한글원제 → 0건이면 strip → 0건이면 번역. 호출 상한 3회.
-async function fetchAnilistCandidates(title) {
+// "N기/N쿨/시즌N/PartN" 접미어 제거(원제와 함께 검색해 기수 제목 매칭률↑)
+const stripSeason = (t) => t.replace(/\s*\d+기$|\s*\d+쿨$|\s*시즌\s*\d+$|\s*Part\s*\d+$/i, '').trim();
+
+// ── AniList 후보 조회 → raw media[] ─────────────────────────────────────
+// 입력 전략: 원제 + strip제목을 "둘 다" 검색해 합침(기수 제목이 원제에서 안 잡혀도 strip으로 보강).
+// 그래도 0건이면 mymemory 번역(ko→en) 후 재검색.
+async function fetchAnilistCandidates(queries) {
   const query = `query($s:String){Page(perPage:8){media(search:$s,type:ANIME,sort:SEARCH_MATCH){id title{romaji english native} coverImage{medium large} genres tags{name rank isMediaSpoiler}}}}`;
-  const aliased = TITLE_ALIAS[title] ?? title;
 
   async function searchAL(q) {
     const res = await fetch('https://graphql.anilist.co', {
@@ -975,33 +980,45 @@ async function fetchAnilistCandidates(title) {
       return json.responseData?.translatedText ?? null;
     } catch { return null; }
   }
-  const strip = (t) => t.replace(/\s*\d+기$|\s*\d+쿨$|\s*시즌\s*\d+$|\s*Part\s*\d+$/i, '').trim();
 
-  let media = await searchAL(aliased);                       // 1차: 한글 원제
-  if (media.length === 0) {                                  // 2차: strip
-    const stripped = strip(aliased);
-    if (stripped !== aliased) media = await searchAL(stripped);
+  // 원제 + strip제목 각각 검색해 합침(id 중복제거)
+  const seen = new Set();
+  let media = [];
+  for (const q of queries) {
+    const list = await searchAL(q);
+    for (const m of list) { if (!seen.has(m.id)) { seen.add(m.id); media.push(m); } }
   }
-  if (media.length === 0) {                                  // 3차: 번역
-    const en = await translate(strip(aliased) || aliased);
+  // 전부 0건이면 번역 fallback(1회)
+  if (media.length === 0) {
+    const en = await translate(queries[queries.length - 1] || queries[0]);
     if (en) media = await searchAL(en);
   }
   return media;
 }
 
 // ── TMDB 후보 조회 (search/tv?ko-KR → 0건이면 search/movie, C7) → raw results[] ──
-async function fetchTmdbCandidates(title) {
+// 원제 + strip제목 둘 다 tv 검색해 합침. 전부 0건이면 각 쿼리로 movie 검색.
+async function fetchTmdbCandidates(queries) {
   if (!TMDB_CONFIGURED) return [];   // key 미설정 → 스킵(graceful, C5/P7)
-  async function search(kind) {
-    const url = `https://api.themoviedb.org/3/search/${kind}?query=${encodeURIComponent(title)}&language=ko-KR&api_key=${TMDB_API_KEY}`;
+  async function search(kind, q) {
+    const url = `https://api.themoviedb.org/3/search/${kind}?query=${encodeURIComponent(q)}&language=ko-KR&api_key=${TMDB_API_KEY}`;
     const res = await fetch(url);
     if (res.status === 429) throw new Error('TMDB 요청 한도 초과(429) — 잠시 후 다시 시도');
     if (!res.ok) return [];
     const json = await res.json();
     return (json.results || []).map(r => ({ ...r, _kind: kind }));
   }
-  let results = await search('tv');            // tv 우선
-  if (results.length === 0) results = await search('movie');  // 0건이면 movie(C7)
+  async function searchAll(kind) {
+    const seen = new Set();
+    const out = [];
+    for (const q of queries) {
+      const list = await search(kind, q);
+      for (const r of list) { if (!seen.has(r.id)) { seen.add(r.id); out.push(r); } }
+    }
+    return out;
+  }
+  let results = await searchAll('tv');                     // tv 우선(원제+strip)
+  if (results.length === 0) results = await searchAll('movie'); // 전부 0건이면 movie(C7)
   return results;
 }
 
@@ -1030,12 +1047,34 @@ function normalizeTmdb(r) {
   };
 }
 
+// 제목 → 검색어 변형 세트(공백에 민감한 TMDB/AniList 대비). 서로 다른 것만, 빈값 제외.
+// 원제 / 기수 제거 / 공백 정규화 / 공백 완전 제거. (공백 삽입은 자동 불가 → 직접검색 대안)
+function queryVariants(base) {
+  const norm = (s) => s.replace(/\s+/g, ' ').trim();   // 연속 공백 → 단일
+  const nospace = (s) => s.replace(/\s+/g, '');         // 공백 완전 제거
+  const stripped = stripSeason(base);
+  const variants = [
+    base,
+    norm(base),
+    nospace(base),
+    stripped,
+    norm(stripped),
+    nospace(stripped),
+  ];
+  return [...new Set(variants.filter(v => v && v.trim()))];  // 중복·빈값 제거
+}
+
 // 제목 → AniList + TMDB 병합 Candidate 배열 (정렬 TMDB 먼저 — C2, source+id 중복제거)
 async function fetchGenreCandidates(title) {
+  // 검색어 = 원제/기수제거/공백정규화/공백제거 변형 세트. 중복 스킵.
+  const aliased = TITLE_ALIAS[title] ?? title;
+  const alQueries = queryVariants(aliased);   // AniList: 별칭 적용
+  const tmdbQueries = queryVariants(title);   // TMDB: 원제 그대로(ko-KR 유리)
+
   // 두 소스 병렬 조회(한쪽 실패해도 다른 쪽 살림)
   const [alRes, tmdbRes] = await Promise.allSettled([
-    fetchAnilistCandidates(title),
-    fetchTmdbCandidates(title),
+    fetchAnilistCandidates(alQueries),
+    fetchTmdbCandidates(tmdbQueries),
   ]);
   const alCands = alRes.status === 'fulfilled' ? alRes.value.map(normalizeAnilist) : [];
   const tmdbCands = tmdbRes.status === 'fulfilled' ? tmdbRes.value.map(normalizeTmdb) : [];
@@ -1048,7 +1087,7 @@ async function fetchGenreCandidates(title) {
     return seen.has(key) ? false : (seen.add(key), true);
   });
 
-  // 두 소스 다 실패(에러)면 예외 전파 — autoFillGenre가 안내
+  // 두 소스 다 실패(에러)면 예외 전파 — runCandidateSearch가 안내
   if (alRes.status === 'rejected' && tmdbRes.status === 'rejected') {
     throw alRes.reason || tmdbRes.reason || new Error('후보 검색 실패');
   }
@@ -1318,7 +1357,14 @@ function openAnimeForm(anime, preset) {
         <input type="text" id="f-genre" value="${esc(a.genre || '')}" style="flex:1">
         <button type="button" class="btn-secondary" id="f-genre-auto" style="flex:0 0 auto;white-space:nowrap;padding:9px 14px">장르 자동</button>
       </div>
-      <div class="genre-candidates" id="genre-candidates" style="display:none"></div></div>
+      <div class="genre-candidates" id="genre-candidates" style="display:none"></div>
+      <div class="direct-search" id="direct-search" style="display:none">
+        <label style="font-size:11px;color:var(--text-muted)">직접 검색 — 다른 표기(띄어쓰기·영어·일본어)로 다시 찾기</label>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <input type="text" id="f-search" placeholder="예: 윈드 브레이커 / Wind Breaker" style="flex:1">
+          <button type="button" class="btn-secondary" id="f-search-btn" style="flex:0 0 auto;white-space:nowrap;padding:9px 14px">검색</button>
+        </div>
+      </div></div>
     <div class="edit-field"><label>포스터 URL (선택 — 후보 선택 시 자동, 직접 입력·수정 가능)</label>
       <input type="text" id="f-poster" value="${esc(a.poster_url || '')}">
       <div class="poster-preview">
@@ -1333,38 +1379,53 @@ function openAnimeForm(anime, preset) {
 
   document.getElementById('f-cancel').addEventListener('click', closeEditModal);
   document.getElementById('f-save').addEventListener('click', () => saveAnimeForm(isEdit ? a.id : null, type));
-  document.getElementById('f-genre-auto').addEventListener('click', autoFillGenre);
+  document.getElementById('f-genre-auto').addEventListener('click', () => runCandidateSearch());
   // 포스터 URL 직접 수정 시 미리보기 갱신(P6)
   document.getElementById('f-poster').addEventListener('input', e => setPosterField(e.target.value.trim()));
+  // 직접 검색(P6): f-search 값으로 후보 재검색
+  const searchBtn = document.getElementById('f-search-btn');
+  const searchInput = document.getElementById('f-search');
+  searchBtn.addEventListener('click', () => runCandidateSearch(searchInput.value.trim()));
+  searchInput.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); runCandidateSearch(searchInput.value.trim()); } });
 }
 
 // 현재 후보 데이터 캐시(클릭 시 추가 fetch 없이 재사용 — GR6)
 let genreCandidateCache = [];
 
-// "장르 자동" 버튼 — 제목으로 AniList 후보 검색 → 인라인 후보목록 렌더(반자동)
-async function autoFillGenre() {
+// 후보 검색 실행 — '장르 자동'(제목 사용) 또는 '직접 검색'(query 인자) 공용
+// query 미지정 시 제목(f-title) 사용. 공백·기수 변형 세트로 검색(fetchGenreCandidates).
+async function runCandidateSearch(query) {
   const msg = document.getElementById('f-msg');
-  const btn = document.getElementById('f-genre-auto');
+  const btn = query != null ? document.getElementById('f-search-btn') : document.getElementById('f-genre-auto');
   const box = document.getElementById('genre-candidates');
-  const title = document.getElementById('f-title').value.trim();
+  const directSearch = document.getElementById('direct-search');
+  const term = (query != null ? query : document.getElementById('f-title').value).trim();
   msg.textContent = '';
-  if (!title) { msg.textContent = '제목을 먼저 입력하세요.'; return; }
+  if (!term) {
+    msg.textContent = query != null ? '검색어를 입력하세요.' : '제목을 먼저 입력하세요.';
+    return;
+  }
 
+  const label = btn.textContent;
   btn.disabled = true; btn.textContent = '조회 중...';
   try {
-    const media = await fetchGenreCandidates(title);
+    const media = await fetchGenreCandidates(term);
     genreCandidateCache = media;
     if (media.length === 0) {
       box.style.display = 'none';
-      msg.textContent = '검색 결과 없음 — 수동 입력하세요.';
+      // 0건 안내 강화 + 직접 검색창 노출·포커스(P6)
+      msg.textContent = "검색 결과 없음 — 아래 '직접 검색' 칸에 다른 표기(띄어쓰기·영어·일본어)로 입력해 보세요.";
+      directSearch.style.display = 'block';
+      document.getElementById('f-search').focus();
     } else {
       renderGenreCandidates(media);
     }
   } catch (e) {
     box.style.display = 'none';
-    msg.textContent = (e.message || '장르 자동 실패') + ' — 수동 입력하세요.';
+    msg.textContent = (e.message || '검색 실패') + " — 아래 '직접 검색' 칸에 다른 표기로 시도하세요.";
+    directSearch.style.display = 'block';
   } finally {
-    btn.disabled = false; btn.textContent = '장르 자동';
+    btn.disabled = false; btn.textContent = label;
   }
 }
 
