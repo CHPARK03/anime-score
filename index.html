@@ -1041,10 +1041,30 @@ function normalizeTmdb(r) {
   const thumb  = r.poster_path ? TMDB_IMG + 'w185' + r.poster_path : '';
   return {
     source: 'tmdb', id: r.id,
+    tvId: r._kind === 'tv' ? r.id : null,   // tv면 /tv/{id} 시즌 조회용(movie는 시즌 없음)
     titleMain: main, titleSub: (sub && sub !== main ? sub : ''),
     posterUrl: poster, thumbUrl: thumb,
     genres: [], tags: [],   // TMDB엔 앱 장르 매핑 소스 없음 → 포스터만(C1)
   };
+}
+
+// TMDB tv 시즌 포스터 조회 (/tv/{id}) → [{label, name, posterUrl}] (본작 + season 1..N, 최대 6 — C10)
+async function fetchSeasonPosters(tvId, mainPosterUrl) {
+  const out = [];
+  if (mainPosterUrl) out.push({ label: '본작', name: '', posterUrl: mainPosterUrl });
+  try {
+    const res = await fetch(`https://api.themoviedb.org/3/tv/${tvId}?language=ko-KR&api_key=${TMDB_API_KEY}`);
+    if (!res.ok) return out;
+    const json = await res.json();
+    (json.seasons || [])
+      .filter(s => s.season_number >= 1 && s.poster_path)
+      .slice(0, 6)   // 최대 6시즌(C10)
+      .forEach(s => out.push({
+        label: `시즌 ${s.season_number}`, name: s.name || '',
+        posterUrl: TMDB_IMG + 'w500' + s.poster_path,
+      }));
+  } catch { /* 시즌 조회 실패 → 본작만 */ }
+  return out;
 }
 
 // 제목 → 검색어 변형 세트(공백에 민감한 TMDB/AniList 대비). 서로 다른 것만, 빈값 제외.
@@ -1391,6 +1411,7 @@ function openAnimeForm(anime, preset) {
 
 // 현재 후보 데이터 캐시(클릭 시 추가 fetch 없이 재사용 — GR6)
 let genreCandidateCache = [];
+let seasonCandidateCache = [];   // 시즌 서브후보 캐시
 
 // 후보 검색 실행 — '장르 자동'(제목 사용) 또는 '직접 검색'(query 인자) 공용
 // query 미지정 시 제목(f-title) 사용. 공백·기수 변형 세트로 검색(fetchGenreCandidates).
@@ -1456,20 +1477,61 @@ function renderGenreCandidates(cands) {
   });
 }
 
-// 후보 클릭 → 포스터 확정(P2) + (AniList면)장르 매핑, 추가 호출 0
-function pickGenreCandidate(idx) {
+// 후보 클릭 → 장르 매핑(AniList) + 포스터 확정. TMDB tv면 시즌 서브후보 펼침(SP5)
+async function pickGenreCandidate(idx) {
   const c = genreCandidateCache[idx];
   if (!c) return;
-  // 포스터 확정(TMDB·AniList 둘 다) → #f-poster
-  if (c.posterUrl) setPosterField(c.posterUrl);
   // 장르: AniList 후보만 매핑(TMDB는 포스터만 — C1)
   const result = mapGenres(c.genres, c.tags);
   if (result) document.getElementById('f-genre').value = result;   // C2: 덮어쓰기
-  else if (c.source === 'tmdb')
+
+  // TMDB tv 후보 → 시즌 서브후보 펼침(1기/2기 선택). movie/AniList는 즉시 확정.
+  if (c.source === 'tmdb' && c.tvId) {
+    const box = document.getElementById('genre-candidates');
+    box.innerHTML = `<div class="genre-cand-head"><span>시즌 포스터 불러오는 중...</span></div>`;
+    const seasons = await fetchSeasonPosters(c.tvId, c.posterUrl);
+    if (seasons.length <= 1) {
+      // 시즌 없음 → 본작 포스터 즉시 확정
+      if (c.posterUrl) setPosterField(c.posterUrl);
+      closeGenreCandidates();
+    } else {
+      renderSeasonCandidates(seasons);
+    }
+    return;
+  }
+
+  // TMDB movie / AniList → 포스터 즉시 확정
+  if (c.posterUrl) setPosterField(c.posterUrl);
+  if (!result && c.source === 'tmdb')
     document.getElementById('f-msg').textContent = 'TMDB 후보 — 포스터만 확정했어요. 장르는 AniList 후보나 수동 입력하세요.';
-  else
+  else if (!result)
     document.getElementById('f-msg').textContent = '이 작품은 매핑 가능한 장르가 없어요 — 수동 입력하세요.';
   closeGenreCandidates();
+}
+
+// 시즌 서브후보 렌더 — 본작 + 시즌 1..N 포스터(C10 최대6) → 클릭 시 poster_url 확정
+function renderSeasonCandidates(seasons) {
+  seasonCandidateCache = seasons;
+  const box = document.getElementById('genre-candidates');
+  const cards = seasons.map((s, i) => `
+    <div class="genre-cand" data-sidx="${i}">
+      ${s.posterUrl ? `<img src="${esc(s.posterUrl.replace('/w500', '/w185'))}" alt="" loading="lazy">` : '<div style="width:40px;height:56px;flex:0 0 auto"></div>'}
+      <div class="genre-cand-info">
+        <div class="genre-cand-title">${esc(s.label)}</div>
+        ${s.name ? `<div class="genre-cand-native">${esc(s.name)}</div>` : ''}
+      </div>
+    </div>`).join('');
+  box.innerHTML = `<div class="genre-cand-head"><span>시즌 포스터 선택 (1기/2기)</span>
+      <button type="button" id="genre-cand-close">닫기</button></div>${cards}`;
+  box.style.display = 'flex';
+  document.getElementById('genre-cand-close').addEventListener('click', closeGenreCandidates);
+  box.querySelectorAll('.genre-cand').forEach(el => {
+    el.addEventListener('click', () => {
+      const s = seasonCandidateCache[+el.dataset.sidx];
+      if (s?.posterUrl) setPosterField(s.posterUrl);
+      closeGenreCandidates();
+    });
+  });
 }
 
 // 포스터 URL을 폼 hidden 필드 + 미리보기에 반영
@@ -1487,6 +1549,7 @@ function closeGenreCandidates() {
   const box = document.getElementById('genre-candidates');
   if (box) { box.style.display = 'none'; box.innerHTML = ''; }
   genreCandidateCache = [];
+  seasonCandidateCache = [];
 }
 
 // ════════════════════════════════════════════════════════════════════════

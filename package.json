@@ -1,0 +1,16 @@
+{
+  "name": "anime-score-tools",
+  "version": "1.0.0",
+  "private": true,
+  "description": "anime-score 일회용 운영 스크립트 (포스터 일괄 채우기 등). 사이트 본체는 index.html(정적).",
+  "scripts": {
+    "bulk-fill-posters": "node bulk-fill-posters.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "dotenv": "^16.4.5"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

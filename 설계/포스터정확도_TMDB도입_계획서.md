@@ -5,6 +5,7 @@
 > 전제: Supabase 전환 완료 + 편집 CRUD + 장르 후보선택 반자동(장르자동완성_series제거_계획서.md 작업 1-R) 동작 중.
 > 상태: **설계(Design) 단계 — 구현/검수/라이브 미접근.** DB ALTER·git push는 관리자 게이트.
 > 관련 선행 설계: `설계/사이트내_편집_전환_계획서.md`(스키마·RLS), `설계/장르자동완성_series제거_계획서.md`(후보선택 UI).
+> **확장 2026-07-01: 전체 재처리(덮어쓰기) + 1기/2기 시즌 포스터 → §12 참조.**
 
 ---
 
@@ -180,3 +181,90 @@ Candidate = {
 - poster_url ALTER는 non-destructive지만 **라이브 변경이라 관리자 직접**(planner/dev 미접근). git push·배포 관리자 게이트.
 - C1~C7 최종 확정은 관리자 게이트. 본 문서는 설계까지이며 **코드 미작성/미검증**.
 - 미래 확장(다중사용자/에피소드점수/광고)은 이번 범위 밖 — poster_url 소스독립이라 확장에 구조적 무리 없음.
+
+---
+---
+
+# §12 — 전체 재처리 + 1기/2기 시즌 포스터 (2026-07-01 확장)
+
+> 관리자 확정: **전체 작품 재처리(덮어쓰기)** + **시즌(기수)별 다른 포스터**. 근본: 현재 검색은 기수 제거→본작 매칭이라 1기/2기가 같은 포스터가 됨.
+
+## 12-1. 요구사항 (1줄)
+일괄 스크립트(bulk-fill-posters.js)를 **전체 작품 대상(덮어쓰기)** 으로 확장하고, 제목의 **기수 N에 맞는 TMDB 시즌 포스터**를 저장한다. 검수 갤러리에서도 **시즌별 포스터를 후보로 펼쳐** 사람이 1기/2기를 고른다.
+
+## 12-2. 검증 가능한 성공기준
+| # | 기준 | 확인 |
+|---|------|------|
+| SP1 | "주술회전 3기"처럼 기수 있는 작품이 **해당 시즌(season_number=3) 포스터**로 저장된다(본작과 다름) | DB poster_url이 시즌 포스터 |
+| SP2 | 기수 없는 작품/시즌 없는 경우 **본작 tv 포스터로 fallback**(빈값 아님) | fallback 동작 |
+| SP3 | 스크립트가 **전체 작품**을 대상으로 돌며 기존 poster_url도 **덮어쓴다** | 대상 수 = 전체 |
+| SP4 | 재실행 안전(멱등에 가깝게) + 진행 로그 + throttle로 429 회피 | 로그·재실행 |
+| SP5 | 검수 갤러리에서 TMDB tv 후보 클릭 시 **본작 + season 1..N 포스터가 후보로 나열**되어 1기/2기 선택 가능 | 시즌 후보 렌더 |
+| SP6 | 분할쿨·극장판 등 N≠season 어긋남 시 **본작 fallback**으로 빈 포스터 방지, 사람이 검수로 교정 가능 | 어긋남 케이스 |
+
+## 12-3. 시즌 포스터 로직 (핵심)
+
+### (a) 기수 N 추출
+- `제목 → N`: 정규식 `(\d+)\s*기` 매칭(예 "주술회전 3기"→3, "스파이 패밀리 2기"→2). "쿨/시즌/Part"도 후보(§12-6 C8). N 없으면 `null`(기수 없는 작품).
+
+### (b) TMDB 시즌 조회 흐름
+```
+1) search/tv(ko-KR, queryVariants) → 첫 유효 결과의 tv id 확보(현재는 poster_path만 쓰는데 id도 취함)
+2) N == null → 본작 tv poster_path 사용(현행 동작 유지)
+3) N != null → GET /tv/{id}?language=ko-KR → seasons[] 에서 season_number == N 검색
+     - 있으면 그 season.poster_path 사용
+     - 없거나 poster_path null → 본작 tv poster_path fallback (SP2/SP6)
+4) tv 0건 → movie 검색(기존 C7) → 그 poster (극장판 등)
+5) 전부 실패 → AniList → 그래도 0건 스킵
+저장 URL = TMDB_IMG + 'w500' + poster_path
+```
+- **tmdbPoster 반환 확장**: 현재 `{url}`만 → `{ url, tvId, seasons }` 로(시즌 조회 재사용). 또는 findPoster에서 tvId 받아 `/tv/{id}` 1회 추가 호출.
+- **N→season_number 어긋남(중요)**: 분할쿨("2쿨"=같은 시즌), 극장판, 스핀오프는 N이 TMDB season과 안 맞음 → **season_number==N 없으면 무조건 본작 fallback**(빈 포스터 금지). 정확 교정은 검수 갤러리(사람)로(SP6).
+
+### (c) throttle (시즌 조회 추가 호출 대비 — SP4)
+- 시즌 있는 작품마다 `/tv/{id}` 1회 추가 → 작품당 TMDB 호출 늘어남. 기존 `sleep(120)`(검색)·`sleep(300)`(작품간)에 더해 **`/tv/{id}` 호출 뒤 `sleep(150)`** 추가. 429는 기존 재시도(2000ms 대기) 유지.
+- 전체 재처리는 323개 × (검색+시즌) → 넉넉히 잡아 수 분. 개인 1회성이라 허용.
+
+## 12-4. 스크립트 변경점 (bulk-fill-posters.js)
+| 위치 | 현재 | 변경 |
+|------|------|------|
+| 대상 쿼리(124~129) | `.is('poster_url', null)` | **필터 제거 → 전체 select**(덮어쓰기, SP3). 정렬 id asc 유지 |
+| `tmdbPoster`(64~87) | 첫 poster_path만 반환 | **tv id 확보 + `/tv/{id}` seasons 조회 + season 매칭**(12-3b). 반환 `{url, source}` 유지하되 내부에서 시즌 결정 |
+| `findPoster`(113~120) | 제목만 | **기수 N 추출**(extractSeasonNo) 후 tmdb에 N 전달 |
+| 신규 | — | `extractSeasonNo(title)`, `tmdbSeasonPoster(tvId, N)` 함수 추가 |
+| 로그(156) | source | source + `season N` 표기(예 "저장(tmdb·S3)") |
+| 안내 문구 | "NULL만" | "전체 재처리(덮어쓰기)"로 문구 수정 |
+
+> **[D1] 11~12행 재실행 스킵 주석 정정**: `bulk-fill-posters.js` **11~12행의 재실행 스킵 주석**('poster_url 있으면 건너뜀, 중간 끊겨도 남은 것만 처리')을 **전체 재처리(매번 전체 재검색·덮어쓰기, resume 아님)**로 정정하도록 dev에 지시한다. 전체 덮어쓰기로 바뀌어 resume(남은 것만 처리) 개념이 사라졌으므로, 주석이 실제 동작과 어긋나지 않게 문구를 맞춘다.
+
+> service_role .env·커밋금지·관리자 로컬 실행은 **그대로 유지**(골격 준수). 스크립트는 DB 직접 update = **관리자 로컬에서만**, planner/dev 라이브 미접근.
+
+## 12-5. 검수 갤러리 시즌 후보 (index.html)
+- **후보 확장**: TMDB tv 후보 선택(또는 렌더) 시 `/tv/{id}` 호출해 **본작 poster + season 1..N poster를 후보 카드로 펼침**. 각 카드 라벨 = "본작" / "시즌 N (season.name)". 사람이 1기/2기 맞는 포스터 클릭 → 그 poster_url 확정.
+- 기존 `fetchGenreCandidates`/`renderGenreCandidates`/`pickGenreCandidate`(§6·§5-3) 확장: Candidate에 `seasonPosters[]` 필드 추가, 렌더 시 시즌 포스터를 서브 후보로.
+- **표시 개수**: 시즌이 많은 작품(장수 시리즈)은 후보 폭증 → **최대 표시 개수 제한**(§12-6 C10, 추천 본작+최대 6시즌).
+- AniList는 2기가 별도 Media라 시즌 개념 없음 → **시즌 포스터는 TMDB 위주**, AniList는 단일 포스터 후보로만.
+
+## 12-6. 미해결 선택지 (관리자 결정 — 추천+근거)
+| # | 질문 | 추천 | 근거 |
+|---|------|------|------|
+| C8 | 기수 표기 범위(기/쿨/시즌/Part) → season_number 매핑 | **"N기"만 season_number=N 매핑, 쿨/Part는 본작 fallback**(추천) | 분할쿨(2쿨)은 같은 시즌이라 오매핑 위험. 애매하면 본작+검수 |
+| C9 | N→season 어긋남 fallback | **season 없으면 본작 tv poster**(추천) | 빈 포스터 절대 방지(SP6). 정확 교정은 사람(검수) |
+| C10 | 검수 갤러리 시즌 포스터 표시 개수 | **본작 + 최대 6시즌**(추천) | 후보 폭증 방지. 대부분 3~4기 이내 |
+| C11 | 전체 재처리가 **수동 확정 poster_url도 덮어씀** | **지금은 덮어쓰기 OK(수동확정 개념 없음)** — 향후 `poster_locked` 플래그로 보호(후속) | 현재 수동확정 데이터 없음. 미래에 검수로 확정한 건 보호 필요 시 컬럼 추가 |
+| C12 | 시즌 조회 API 추가 호출 throttle 강도 | **`/tv/{id}` 뒤 sleep(150) + 429 재시도 유지**(추천) | 개인 1회성이라 속도보다 안전 우선 |
+
+## 12-7. 리스크 (§12 추가분)
+| 리스크 | 영향 | 완화 |
+|--------|------|------|
+| N기≠TMDB season(분할쿨/극장판/스핀오프) | 엉뚱한 시즌 포스터 | season==N 없으면 본작 fallback(C9). 사람 검수로 최종 교정 |
+| 시즌 조회로 TMDB 호출 급증 | 429/지연 | `/tv/{id}` 뒤 throttle(C12), 작품간 sleep 유지. 1회성이라 허용 |
+| 전체 덮어쓰기로 좋은 포스터 유실 | 기존 정확 포스터 손상 | 관리자 확정(전체 재처리). **[N1] 전체 덮어쓰기 실행 전 기존 poster_url 백업 권장** — `select id, title, poster_url from anime where poster_url is not null` 결과를 파일로 저장(유실 대비 즉시 복구용). poster_locked(C11)는 후속이므로, 이번엔 즉시 백업으로 대비. 검수로 재교정도 가능 |
+| 후보 시즌 폭증 | UI 부담 | 표시 개수 제한(C10) |
+| tv id 확보 실패(검색 0건) | 시즌 조회 불가 | movie→AniList fallback, 그래도 0건 스킵(기존) |
+
+## 12-8. §12 정직 보고
+- TMDB `/tv/{id}` seasons[] 필드(season_number/poster_path/name)·rate limit은 **가정** — dev 구현 전 실측.
+- "N기"→season_number는 **일반 시리즈엔 성립하나 분할쿨/극장판엔 어긋남** → 본작 fallback + 사람 검수로 보정(정직: 자동만으론 100% 정확 불가).
+- 전체 재처리는 **기존 poster_url 덮어씀** — 관리자 확정. 수동확정 보호(poster_locked)는 후속(C11).
+- 스크립트 DB 직접 update는 **관리자 로컬 실행**(service_role .env, 커밋금지). planner/dev 라이브 미접근. git push·배포 관리자 게이트.

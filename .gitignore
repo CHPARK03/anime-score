@@ -6,6 +6,11 @@ Thumbs.db
 .env
 .env.local
 .env.*
+# 템플릿(값 비움)은 커밋 허용 — 실제 비밀 없음
+!.env.example
+
+# node 스크립트 의존성(일회용 운영 스크립트용)
+node_modules/
 
 # DB 백업본(라이브 export) — 레포에 올리지 않음
 backup_*.csv
