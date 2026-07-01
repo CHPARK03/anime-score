@@ -25,6 +25,7 @@ create table if not exists public.anime (
   season      int check (season between 1 and 4), -- 정렬용 (1~4)
   note        text,
   genre       text,                               -- "로맨스/코미디" 슬래시 구분
+  poster_url  text,                               -- 포스터 절대 URL(소스독립: TMDB/AniList/직접입력)
   sort_order  int not null default 0,             -- 분기 내 수동 정렬용(선택)
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()

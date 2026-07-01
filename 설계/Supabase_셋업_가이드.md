@@ -207,6 +207,32 @@ select count(*) from anime where type='seasonal' and (year is null or season is 
 
 ---
 
+## 포스터 정확도 개선 (TMDB 도입 + poster_url 컬럼)
+
+> 한글 제목 매칭이 약한 AniList 대신 TMDB(ko-KR)를 포스터 검색 소스로 추가하고, 고른 포스터를 DB(poster_url)에 영구 저장하는 기능.
+
+### 1) poster_url 컬럼 추가 (라이브 DB — 관리자 직접, non-destructive)
+- SQL Editor에서 실행 (기존 데이터 보존, 백업 불필요):
+  ```sql
+  alter table public.anime add column if not exists poster_url text;
+  ```
+- `supabase_schema.sql`에도 이미 반영됨(스키마-라이브 정합). RLS 변경 불필요(기존 anime 정책 그대로 적용).
+- **select 컬럼에 poster_url을 추가한 코드 배포와 같은 시점에** 진행(컬럼 없이 poster_url을 select하면 에러).
+
+### 2) TMDB API key (v3)
+- `index.html` 상단 `TMDB_API_KEY` 상수에 발급받은 **v3 api_key** 기입(이미 기입됨: `14089bd6...`).
+- **v3 방식**(URL 파라미터 `?api_key=`) 사용. v4 Bearer 토큰 아님.
+- ⚠️ **TMDB 무료 = 비상업(개인) 전용.** 광고 등 상업화 시 유료 라이선스 또는 Supabase Edge Function 등 서버리스 프록시로 전환 필요(poster_url은 소스독립이라 저장분은 그대로 유지, 신규 검색만 전환).
+- 미설정(placeholder `<...>`)이면 TMDB 스킵, AniList만으로 동작(graceful). 즉 key 없이도 기존대로 작동.
+- **attribution 의무**: 푸터에 "This product uses the TMDB API but is not endorsed or certified by TMDB." + 로고 표시(코드에 이미 포함). 제거 금지.
+
+### 3) 사용법
+- 편집 폼에서 제목 입력 → **장르 자동** 클릭 → AniList+TMDB 후보 목록(소스 배지·썸네일·장르 미리보기) → 맞는 작품 클릭 → **포스터 URL 확정**(+AniList면 장르도) → 저장.
+- **포스터 검수 갤러리**: 로그인(편집모드) → 상단 **🖼 포스터 검수** 버튼 → 전 작품 썸네일 그리드(빈 포스터는 점선 표시) → 빈/틀린 셀 클릭 → 후보 선택/URL 직접입력 → 저장 → 그리드·진행률 즉시 갱신.
+- 포스터 표시 우선순위: **poster_url(DB) → posters.json → AniList 라이브검색**. poster_url이 채워지면 라이브 호출 없이 영구 정확 표시.
+
+---
+
 ## 트러블슈팅
 
 | 증상 | 원인/해결 |

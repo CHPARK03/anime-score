@@ -258,6 +258,50 @@
   .btn-danger:hover { background: #dc2626; }
   .edit-msg { font-size: 12px; color: #f87171; margin-top: 10px; min-height: 16px; text-align: left; }
   .edit-warn { font-size: 13px; color: #fbbf24; margin: 8px 0 4px; line-height: 1.5; text-align: left; }
+
+  /* 장르 자동완성 — 인라인 후보 목록(C9) */
+  .genre-candidates { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; }
+  .genre-cand-head { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-muted); }
+  .genre-cand-head button { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 12px; }
+  .genre-cand-head button:hover { color: var(--text); }
+  .genre-cand {
+    display: flex; gap: 10px; align-items: center; text-align: left;
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px; cursor: pointer; transition: border-color 0.15s;
+  }
+  .genre-cand:hover { border-color: var(--accent); }
+  .genre-cand img { width: 40px; height: 56px; object-fit: cover; border-radius: 4px; flex: 0 0 auto; background: var(--bg); }
+  .genre-cand-info { min-width: 0; }
+  .genre-cand-title { font-size: 13px; font-weight: 600; color: var(--text); line-height: 1.3; }
+  .genre-cand-native { font-size: 11px; color: var(--text-muted); }
+  .genre-cand-preview { font-size: 11px; color: var(--accent2); margin-top: 3px; }
+  /* 후보 소스 배지(AniList/TMDB) */
+  .cand-src { font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 20px; margin-right: 4px; vertical-align: middle; }
+  .cand-src.anilist { color: #a78bfa; background: rgba(167,139,250,0.15); }
+  .cand-src.tmdb    { color: #4fc3f7; background: rgba(79,195,247,0.15); }
+
+  /* 폼 포스터 미리보기 + URL 직접입력(P6) */
+  .poster-preview { display: flex; gap: 10px; align-items: flex-start; margin-top: 6px; }
+  .poster-preview img { width: 60px; height: 84px; object-fit: cover; border-radius: 6px; background: var(--bg); border: 1px solid var(--border); }
+
+  /* 포스터 검수 갤러리(P5) */
+  .review-bar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+  .review-progress { font-size: 13px; color: var(--text-muted); }
+  .review-progress b { color: var(--accent2); }
+  .review-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 12px; }
+  .review-cell {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden; cursor: pointer; transition: border-color 0.15s; position: relative;
+  }
+  .review-cell:hover { border-color: var(--accent); }
+  .review-cell.no-poster { border-style: dashed; border-color: #b45309; }
+  .review-cell img { width: 100%; aspect-ratio: 2/3; object-fit: cover; display: block; background: var(--bg); }
+  .review-cell .rc-empty { width: 100%; aspect-ratio: 2/3; display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 11px; background: var(--surface2); }
+  .review-cell .rc-title { font-size: 11px; padding: 6px; line-height: 1.3; color: var(--text); word-break: keep-all; }
+
+  /* TMDB attribution 푸터(C6) */
+  .tmdb-attribution { text-align: center; padding: 24px 16px; color: var(--text-muted); font-size: 11px; line-height: 1.6; border-top: 1px solid var(--border); margin-top: 20px; }
+  .tmdb-attribution img { height: 16px; vertical-align: middle; margin-right: 6px; opacity: 0.8; }
 </style>
 </head>
 <body>
@@ -313,6 +357,12 @@
   </div>
 </main>
 
+<!-- ══ TMDB attribution (무료 이용 의무 — 공식 문구, C6) ══ -->
+<footer class="tmdb-attribution">
+  <img src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_short-8e7b30f73a4020692ccca9c88bafe5dcb6f8a62a4c6bc55cd9ba82bb2cd95f6c.svg" alt="TMDB">
+  This product uses the TMDB API but is not endorsed or certified by TMDB.
+</footer>
+
 <div class="modal-overlay hidden" id="modal-overlay">
   <div class="modal-box">
     <button class="modal-close" id="modal-close">✕</button>
@@ -350,6 +400,14 @@ const SUPABASE_ANON_KEY = 'sb_publishable_CwztzGpMmHjttD8YEjthSg_1a5ZFlTV'; // p
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const SUPABASE_CONFIGURED = !SUPABASE_URL.startsWith('<') && !SUPABASE_ANON_KEY.startsWith('<');
 
+// ── TMDB 포스터 검색 (관리자가 발급 후 기입) ──────────────
+// TMDB v3 api_key. 정적 사이트라 클라 노출되나 개인·비상업 무료라 허용.
+// ⚠️ TMDB 무료 = 비상업 전용. 광고 등 상업화 시 유료 라이선스 or 서버리스 프록시 전환 필요.
+// 미설정(placeholder)이면 TMDB 스킵 → AniList만으로 동작(graceful, C5/P7).
+const TMDB_API_KEY = '14089bd6aaf408da865bc8b958573d6a'; // v3 api_key(URL 파라미터). 개인·비상업 무료라 공개 허용
+const TMDB_CONFIGURED = !TMDB_API_KEY.startsWith('<');
+const TMDB_IMG = 'https://image.tmdb.org/t/p/'; // + w185(썸네일)/w500(저장) + poster_path
+
 // ── 분기 순서 fallback (quarters에 없는 비표준 분기명 대비 — §5-1b) ──
 // 1차 정렬은 quarters의 year/season DESC. 아래는 보조 fallback일 뿐.
 const QUARTER_ORDER = [
@@ -385,6 +443,7 @@ function buildDataFromRows(animeRows, quarterRows) {
       ? null : parseFloat(row.score);
     if (row.note)   anime.note   = row.note;
     if (row.genre)  anime.genre  = row.genre;
+    if (row.poster_url) anime.poster_url = row.poster_url;
 
     if (row.type === 'seasonal') {
       const q = row.quarter || '(미지정)';
@@ -633,7 +692,7 @@ async function loadData() {
     // anime(정렬 포함)와 quarters를 병렬 fetch
     const [animeRes, quartersRes] = await Promise.all([
       supabase.from('anime')
-        .select('id,title,score,type,quarter,year,season,note,genre,sort_order')
+        .select('id,title,score,type,quarter,year,season,note,genre,poster_url,sort_order')
         .order('year', { ascending: false, nullsFirst: true })
         .order('season', { ascending: false, nullsFirst: true })
         .order('sort_order', { ascending: true })
@@ -863,7 +922,7 @@ const TAG_MAP = {
 
 // 앱에서 흔한 순서(가중 정렬용) — 앞일수록 우선 노출
 const GENRE_WEIGHT = ['로맨스','코미디','학원','판타지','액션','드라마','심리','SF','일상',
-  '이세계','하렘','미스터리','공포','판타지','스포츠','음악','모험','초능력','마법',
+  '이세계','하렘','미스터리','공포','스포츠','음악','모험','초능력','마법',
   '게임','역사','아이돌','스파이','도박','가족','오컬트','히어로','마법소녀','성인',
   '코스프레','격투','경제','청춘','직장','좀비'];
 
@@ -893,10 +952,11 @@ function mapGenres(genres, tags) {
   return out.slice(0, GENRE_MAX).join('/');
 }
 
-// 제목 → AniList genres+tags 조회 (fetchPoster와 동일 3단계 fallback 경로 재사용)
-async function fetchGenres(title) {
-  const query = `query($s:String){Media(search:$s,type:ANIME){genres tags{name rank isMediaSpoiler}}}`;
-  title = TITLE_ALIAS[title] ?? title;
+// ── AniList 후보 조회 (Page 다중검색) → raw media[] ─────────────────────
+// 입력 전략(C8): TITLE_ALIAS → 한글원제 → 0건이면 strip → 0건이면 번역. 호출 상한 3회.
+async function fetchAnilistCandidates(title) {
+  const query = `query($s:String){Page(perPage:8){media(search:$s,type:ANIME,sort:SEARCH_MATCH){id title{romaji english native} coverImage{medium large} genres tags{name rank isMediaSpoiler}}}}`;
+  const aliased = TITLE_ALIAS[title] ?? title;
 
   async function searchAL(q) {
     const res = await fetch('https://graphql.anilist.co', {
@@ -906,8 +966,7 @@ async function fetchGenres(title) {
     });
     if (res.status === 429) throw new Error('AniList 요청 한도 초과(429) — 잠시 후 다시 시도');
     const json = await res.json();
-    const m = json.data?.Media;
-    return m ? { genres: m.genres, tags: m.tags } : null;
+    return json.data?.Page?.media || [];
   }
   async function translate(q) {
     try {
@@ -916,15 +975,84 @@ async function fetchGenres(title) {
       return json.responseData?.translatedText ?? null;
     } catch { return null; }
   }
-  function strip(t) { return t.replace(/\s*\d+기$|\s*\d+쿨$|\s*시즌\s*\d+$|\s*Part\s*\d+$/i, '').trim(); }
+  const strip = (t) => t.replace(/\s*\d+기$|\s*\d+쿨$|\s*시즌\s*\d+$|\s*Part\s*\d+$/i, '').trim();
 
-  let r = await searchAL(title);
-  if (r) return r;
-  const stripped = strip(title);
-  if (stripped !== title) { r = await searchAL(stripped); if (r) return r; }
-  const en = await translate(stripped || title);
-  if (en) r = await searchAL(en);
-  return r;
+  let media = await searchAL(aliased);                       // 1차: 한글 원제
+  if (media.length === 0) {                                  // 2차: strip
+    const stripped = strip(aliased);
+    if (stripped !== aliased) media = await searchAL(stripped);
+  }
+  if (media.length === 0) {                                  // 3차: 번역
+    const en = await translate(strip(aliased) || aliased);
+    if (en) media = await searchAL(en);
+  }
+  return media;
+}
+
+// ── TMDB 후보 조회 (search/tv?ko-KR → 0건이면 search/movie, C7) → raw results[] ──
+async function fetchTmdbCandidates(title) {
+  if (!TMDB_CONFIGURED) return [];   // key 미설정 → 스킵(graceful, C5/P7)
+  async function search(kind) {
+    const url = `https://api.themoviedb.org/3/search/${kind}?query=${encodeURIComponent(title)}&language=ko-KR&api_key=${TMDB_API_KEY}`;
+    const res = await fetch(url);
+    if (res.status === 429) throw new Error('TMDB 요청 한도 초과(429) — 잠시 후 다시 시도');
+    if (!res.ok) return [];
+    const json = await res.json();
+    return (json.results || []).map(r => ({ ...r, _kind: kind }));
+  }
+  let results = await search('tv');            // tv 우선
+  if (results.length === 0) results = await search('movie');  // 0건이면 movie(C7)
+  return results;
+}
+
+// ── 통일 Candidate 정규화 (§5-3) — 소스 무관하게 렌더/선택 ──────────────
+function normalizeAnilist(m) {
+  const main = m.title?.romaji || m.title?.english || m.title?.native || '(제목 없음)';
+  const sub = m.title?.native && m.title.native !== main ? m.title.native : (m.title?.english && m.title.english !== main ? m.title.english : '');
+  return {
+    source: 'anilist', id: m.id,
+    titleMain: main, titleSub: sub,
+    posterUrl: m.coverImage?.large || m.coverImage?.medium || '',
+    thumbUrl: m.coverImage?.medium || m.coverImage?.large || '',
+    genres: m.genres || [], tags: m.tags || [],
+  };
+}
+function normalizeTmdb(r) {
+  const main = r.name || r.title || r.original_name || r.original_title || '(제목 없음)';
+  const sub = r.original_name || r.original_title || '';
+  const poster = r.poster_path ? TMDB_IMG + 'w500' + r.poster_path : '';
+  const thumb  = r.poster_path ? TMDB_IMG + 'w185' + r.poster_path : '';
+  return {
+    source: 'tmdb', id: r.id,
+    titleMain: main, titleSub: (sub && sub !== main ? sub : ''),
+    posterUrl: poster, thumbUrl: thumb,
+    genres: [], tags: [],   // TMDB엔 앱 장르 매핑 소스 없음 → 포스터만(C1)
+  };
+}
+
+// 제목 → AniList + TMDB 병합 Candidate 배열 (정렬 TMDB 먼저 — C2, source+id 중복제거)
+async function fetchGenreCandidates(title) {
+  // 두 소스 병렬 조회(한쪽 실패해도 다른 쪽 살림)
+  const [alRes, tmdbRes] = await Promise.allSettled([
+    fetchAnilistCandidates(title),
+    fetchTmdbCandidates(title),
+  ]);
+  const alCands = alRes.status === 'fulfilled' ? alRes.value.map(normalizeAnilist) : [];
+  const tmdbCands = tmdbRes.status === 'fulfilled' ? tmdbRes.value.map(normalizeTmdb) : [];
+
+  // 정렬: TMDB 먼저 → AniList (C2). source+id로 중복제거
+  const merged = [...tmdbCands, ...alCands];
+  const seen = new Set();
+  const out = merged.filter(c => {
+    const key = c.source + ':' + c.id;
+    return seen.has(key) ? false : (seen.add(key), true);
+  });
+
+  // 두 소스 다 실패(에러)면 예외 전파 — autoFillGenre가 안내
+  if (alRes.status === 'rejected' && tmdbRes.status === 'rejected') {
+    throw alRes.reason || tmdbRes.reason || new Error('후보 검색 실패');
+  }
+  return out;
 }
 
 document.getElementById('main').addEventListener('click', async e => {
@@ -935,9 +1063,12 @@ document.getElementById('main').addEventListener('click', async e => {
   const score    = scoreRaw === '' ? null : parseFloat(scoreRaw);
   openModal(title, score);
   try {
-    // 1. 사전 수집 맵 우선 사용 (빠름, API 호출 없음)
-    let url = POSTERS[title] ?? null;
-    // 2. 맵에 없으면 라이브 API fallback
+    // 표시 우선순위(P3): poster_url(DB, 있으면 즉시·라이브호출0) → posters.json → 라이브검색
+    // D1: findAnimeById로 DATA 조회(makeCard DOM 속성 추가 없이 — XSS 표면 0)
+    let url = findAnimeById(card.dataset.id)?.poster_url || null;
+    // 1. DB에 없으면 사전 수집 맵(posters.json)
+    if (!url) url = POSTERS[title] ?? null;
+    // 2. 맵에도 없으면 라이브 API fallback
     if (!url) url = await fetchPoster(title);
     modalLoadWrap.style.display = 'none';
     if (url) {
@@ -973,6 +1104,7 @@ document.addEventListener('keydown', e => {
 // ════════════════════════════════════════════════════════════════════════
 
 let editMode = false;           // 편집 컨트롤 노출 여부(= 로그인 성공 상태)
+let posterReviewOpen = false;   // 포스터 검수 갤러리 열림 여부(편집모드 전용)
 const editOverlay = document.getElementById('edit-overlay');
 const editContent = document.getElementById('edit-modal-content');
 const editToggleBtn = document.getElementById('edit-toggle');
@@ -999,6 +1131,7 @@ function setEditMode(on) {
   editMode = on;
   document.body.classList.toggle('edit-on', on);
   editToggleBtn.textContent = on ? '로그아웃' : '로그인';
+  if (!on) posterReviewOpen = false;   // 로그아웃 시 검수 뷰 강제 종료(방문자 노출 방지)
   render();   // 편집 컨트롤 주입/제거 반영
 }
 
@@ -1063,7 +1196,7 @@ function findAnimeById(id) {
 async function reloadData() {
   const [animeRes, quartersRes] = await Promise.all([
     supabase.from('anime')
-      .select('id,title,score,type,quarter,year,season,note,genre,sort_order')
+      .select('id,title,score,type,quarter,year,season,note,genre,poster_url,sort_order')
       .order('year', { ascending: false, nullsFirst: true })
       .order('season', { ascending: false, nullsFirst: true })
       .order('sort_order', { ascending: true })
@@ -1078,7 +1211,9 @@ async function reloadData() {
   DATA = buildDataFromRows(animeRes.data || [], quartersRes.data || []);
   calcStats();
   populateGenreFilter();
-  render();
+  // 검수 갤러리가 열려 있으면 그리드 갱신(P5 즉시 반영), 아니면 일반 렌더
+  if (posterReviewOpen) openPosterReview();
+  else render();
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -1122,16 +1257,16 @@ function injectEditControls() {
     });
   }
 
-  // 3) seasonal/classics 탭 상단에 "+ 새 분기 추가" / "+ 정주행 작품 추가" 바
+  // 3) seasonal/classics 탭 상단에 "+ 새 분기 추가" / "+ 정주행 작품 추가" + "포스터 검수" 바
   if ((currentTab === 'seasonal' || currentTab === 'classics') && !main.querySelector('.add-quarter-bar')) {
     const bar = document.createElement('div');
     bar.className = 'add-quarter-bar edit-only';
     bar.style.display = 'block';
-    if (currentTab === 'seasonal') {
-      bar.innerHTML = `<button class="add-quarter-btn" data-act="add-quarter">+ 새 분기 추가</button>`;
-    } else {
-      bar.innerHTML = `<button class="add-quarter-btn" data-act="add-classic">+ 정주행 작품 추가</button>`;
-    }
+    const addBtn = currentTab === 'seasonal'
+      ? `<button class="add-quarter-btn" data-act="add-quarter">+ 새 분기 추가</button>`
+      : `<button class="add-quarter-btn" data-act="add-classic">+ 정주행 작품 추가</button>`;
+    // 포스터 검수 갤러리 진입(C4 — 편집모드 전용 버튼)
+    bar.innerHTML = `${addBtn} <button class="add-quarter-btn" data-act="review-posters">🖼 포스터 검수</button>`;
     main.insertBefore(bar, main.firstChild);
   }
 }
@@ -1149,6 +1284,7 @@ document.getElementById('main').addEventListener('click', e => {
   else if (act === 'add-classic') openAnimeForm(null, { type: 'classic' });
   else if (act === 'add-quarter') openQuarterForm();
   else if (act === 'del-quarter') confirmDeleteQuarter(btn.dataset.quarter);
+  else if (act === 'review-posters') openPosterReview();
 }, true);   // 캡처 단계 — 포스터 모달 핸들러(버블)보다 먼저 가로채 stopPropagation
 
 // ════════════════════════════════════════════════════════════════════════
@@ -1181,6 +1317,13 @@ function openAnimeForm(anime, preset) {
       <div style="display:flex;gap:8px">
         <input type="text" id="f-genre" value="${esc(a.genre || '')}" style="flex:1">
         <button type="button" class="btn-secondary" id="f-genre-auto" style="flex:0 0 auto;white-space:nowrap;padding:9px 14px">장르 자동</button>
+      </div>
+      <div class="genre-candidates" id="genre-candidates" style="display:none"></div></div>
+    <div class="edit-field"><label>포스터 URL (선택 — 후보 선택 시 자동, 직접 입력·수정 가능)</label>
+      <input type="text" id="f-poster" value="${esc(a.poster_url || '')}">
+      <div class="poster-preview">
+        <img id="f-poster-preview" alt="포스터 미리보기"
+             src="${esc(a.poster_url || '')}" style="display:${a.poster_url ? 'block' : 'none'}">
       </div></div>
     <div class="edit-msg" id="f-msg"></div>
     <div class="edit-actions">
@@ -1191,31 +1334,138 @@ function openAnimeForm(anime, preset) {
   document.getElementById('f-cancel').addEventListener('click', closeEditModal);
   document.getElementById('f-save').addEventListener('click', () => saveAnimeForm(isEdit ? a.id : null, type));
   document.getElementById('f-genre-auto').addEventListener('click', autoFillGenre);
+  // 포스터 URL 직접 수정 시 미리보기 갱신(P6)
+  document.getElementById('f-poster').addEventListener('input', e => setPosterField(e.target.value.trim()));
 }
 
-// "장르 자동" 버튼 — 현재 제목으로 AniList 조회 → 한글 장르 정규화 → #f-genre 덮어쓰기(C2)
+// 현재 후보 데이터 캐시(클릭 시 추가 fetch 없이 재사용 — GR6)
+let genreCandidateCache = [];
+
+// "장르 자동" 버튼 — 제목으로 AniList 후보 검색 → 인라인 후보목록 렌더(반자동)
 async function autoFillGenre() {
   const msg = document.getElementById('f-msg');
   const btn = document.getElementById('f-genre-auto');
-  const genreInput = document.getElementById('f-genre');
+  const box = document.getElementById('genre-candidates');
   const title = document.getElementById('f-title').value.trim();
   msg.textContent = '';
   if (!title) { msg.textContent = '제목을 먼저 입력하세요.'; return; }
 
   btn.disabled = true; btn.textContent = '조회 중...';
   try {
-    const r = await fetchGenres(title);
-    const result = r ? mapGenres(r.genres, r.tags) : '';
-    if (result) {
-      genreInput.value = result;   // C2: 항상 덮어쓰기(빈칸 조건 없음)
+    const media = await fetchGenreCandidates(title);
+    genreCandidateCache = media;
+    if (media.length === 0) {
+      box.style.display = 'none';
+      msg.textContent = '검색 결과 없음 — 수동 입력하세요.';
     } else {
-      msg.textContent = '장르 자동 실패 — 수동 입력하세요.';
+      renderGenreCandidates(media);
     }
   } catch (e) {
+    box.style.display = 'none';
     msg.textContent = (e.message || '장르 자동 실패') + ' — 수동 입력하세요.';
   } finally {
     btn.disabled = false; btn.textContent = '장르 자동';
   }
+}
+
+// 후보 목록 렌더(C9 인라인) — Candidate 스키마 기반. 소스 배지 + 장르/포스터 미리보기(C10)
+function renderGenreCandidates(cands) {
+  const box = document.getElementById('genre-candidates');
+  const cards = cands.map((c, i) => {
+    const preview = c.source === 'tmdb'
+      ? '(TMDB — 포스터만, 장르 없음)'
+      : (mapGenres(c.genres, c.tags) || '(매핑 장르 없음)');
+    const badge = `<span class="cand-src ${c.source}">${c.source === 'tmdb' ? 'TMDB' : 'AniList'}</span>`;
+    return `<div class="genre-cand" data-idx="${i}">
+      ${c.thumbUrl ? `<img src="${esc(c.thumbUrl)}" alt="" loading="lazy">` : '<div style="width:40px;height:56px;flex:0 0 auto"></div>'}
+      <div class="genre-cand-info">
+        <div class="genre-cand-title">${badge}${esc(c.titleMain)}</div>
+        ${c.titleSub ? `<div class="genre-cand-native">${esc(c.titleSub)}</div>` : ''}
+        <div class="genre-cand-preview">${esc(preview)}</div>
+      </div>
+    </div>`;
+  }).join('');
+  box.innerHTML = `<div class="genre-cand-head"><span>맞는 작품을 선택하세요 (${cands.length})</span>
+      <button type="button" id="genre-cand-close">닫기</button></div>${cards}`;
+  box.style.display = 'flex';
+
+  document.getElementById('genre-cand-close').addEventListener('click', closeGenreCandidates);
+  box.querySelectorAll('.genre-cand').forEach(el => {
+    el.addEventListener('click', () => pickGenreCandidate(+el.dataset.idx));
+  });
+}
+
+// 후보 클릭 → 포스터 확정(P2) + (AniList면)장르 매핑, 추가 호출 0
+function pickGenreCandidate(idx) {
+  const c = genreCandidateCache[idx];
+  if (!c) return;
+  // 포스터 확정(TMDB·AniList 둘 다) → #f-poster
+  if (c.posterUrl) setPosterField(c.posterUrl);
+  // 장르: AniList 후보만 매핑(TMDB는 포스터만 — C1)
+  const result = mapGenres(c.genres, c.tags);
+  if (result) document.getElementById('f-genre').value = result;   // C2: 덮어쓰기
+  else if (c.source === 'tmdb')
+    document.getElementById('f-msg').textContent = 'TMDB 후보 — 포스터만 확정했어요. 장르는 AniList 후보나 수동 입력하세요.';
+  else
+    document.getElementById('f-msg').textContent = '이 작품은 매핑 가능한 장르가 없어요 — 수동 입력하세요.';
+  closeGenreCandidates();
+}
+
+// 포스터 URL을 폼 hidden 필드 + 미리보기에 반영
+function setPosterField(url) {
+  const hidden = document.getElementById('f-poster');
+  const preview = document.getElementById('f-poster-preview');
+  if (hidden) hidden.value = url || '';
+  if (preview) {
+    if (url) { preview.src = url; preview.style.display = 'block'; }
+    else { preview.removeAttribute('src'); preview.style.display = 'none'; }
+  }
+}
+
+function closeGenreCandidates() {
+  const box = document.getElementById('genre-candidates');
+  if (box) { box.style.display = 'none'; box.innerHTML = ''; }
+  genreCandidateCache = [];
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  포스터 검수 갤러리 (P5/C4) — 편집모드 전용. main을 전용 뷰로 교체.
+// ════════════════════════════════════════════════════════════════════════
+// posterReviewOpen 은 상태 변수 영역(상단)에 선언됨.
+
+// 작품의 현재 표시 포스터 결정(라이브 호출 없이): poster_url → posters.json
+function resolvedThumb(a) {
+  return a.poster_url || POSTERS[a.title] || '';
+}
+
+function openPosterReview() {
+  posterReviewOpen = true;
+  const all = [...DATA.seasonal.flatMap(s => s.anime), ...DATA.classics];
+  const withPoster = all.filter(a => resolvedThumb(a)).length;
+  const cells = all.map(a => {
+    const thumb = resolvedThumb(a);
+    const noPoster = !thumb;
+    return `<div class="review-cell ${noPoster ? 'no-poster' : ''}" data-id="${esc(String(a.id))}">
+      ${thumb ? `<img src="${esc(thumb)}" alt="" loading="lazy">` : '<div class="rc-empty">포스터 없음</div>'}
+      <div class="rc-title">${esc(a.title)}</div>
+    </div>`;
+  }).join('');
+  const main = document.getElementById('main');
+  main.innerHTML = `
+    <div class="review-bar">
+      <button class="add-quarter-btn" id="review-back">← 목록으로</button>
+      <span class="review-progress">포스터 있음 <b>${withPoster}</b> / ${all.length}</span>
+      <span class="review-progress" style="opacity:0.7">빈/틀린 포스터를 클릭해 교정하세요</span>
+    </div>
+    <div class="review-grid" id="review-grid">${cells}</div>`;
+
+  document.getElementById('review-back').addEventListener('click', () => { posterReviewOpen = false; render(); });
+  main.querySelectorAll('.review-cell').forEach(cell => {
+    cell.addEventListener('click', () => {
+      const anime = findAnimeById(cell.dataset.id);
+      if (anime) openAnimeForm(anime);   // 편집 폼 재사용(포스터 후보검색+URL직접입력 포함)
+    });
+  });
 }
 
 async function saveAnimeForm(id, type) {
@@ -1234,8 +1484,9 @@ async function saveAnimeForm(id, type) {
 
   const note = document.getElementById('f-note').value.trim() || null;
   const genre = document.getElementById('f-genre').value.trim() || null;
+  const poster_url = document.getElementById('f-poster').value.trim() || null;
 
-  const payload = { title, score, type, note, genre };
+  const payload = { title, score, type, note, genre, poster_url };
   if (type === 'seasonal') {
     const quarter = document.getElementById('f-quarter').value;
     if (!quarter) { msg.textContent = '분기를 선택하세요(없으면 먼저 분기를 추가).'; return; }
