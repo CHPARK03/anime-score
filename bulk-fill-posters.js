@@ -1,27 +1,34 @@
 #!/usr/bin/env node
 /**
- * bulk-fill-posters.js — 포스터 일괄 채우기 (일회용, 관리자 로컬 1회 실행)
+ * bulk-fill-posters.js — 포스터 일괄 채우기 (반복 실행 가능, 관리자 로컬 실행)
  * ──────────────────────────────────────────────────────────────────────────
- * **전체 작품**을 TMDB(ko-KR)+AniList 로 자동 검색해 포스터 URL 을 DB에 저장한다.
+ * TMDB(ko-KR)+AniList 로 자동 검색해 포스터 URL 을 DB에 저장한다.
  * 제목의 "N기"가 TMDB 시즌에 있으면 **그 시즌 포스터**, 없으면 **본작 포스터**로.
  * RLS 우회를 위해 service_role 키 사용.
  *
- * ⚠️ 전체 재처리(덮어쓰기): 매번 전체 작품을 재검색해 poster_url 을 **덮어쓴다**.
- *    (resume 아님 — 이미 채워진 것도 다시 검색·저장. 재실행하면 처음부터 전체.)
+ * ★ 기본 동작 = **빈 것만 채움(fill)** — `poster_url IS NULL` 인 작품만 처리한다.
+ *   이미 채워진 포스터(자동 저장분·검수 갤러리에서 사람이 확정한 것 모두)는
+ *   **절대 건드리지 않는다.** 신작 방영 후 아무 때나 다시 실행해도 안전하다.
+ *
+ * ⚠️ `--all` 플래그를 줄 때만 **전체 재처리(덮어쓰기)** 로 동작한다.
+ *      node bulk-fill-posters.js --all
+ *   이 모드는 사람이 검수로 확정한 포스터까지 자동 1위 결과로 **덮어쓴다.**
+ *   전체 재매칭이 정말 필요할 때만 쓰고, 실행 전 반드시 백업하라(아래).
  *
  * ⚠️ 자동 1위/시즌 매칭이라 일부 오매칭(분할쿨·극장판·스핀오프 등) 가능하다.
  *    실행 후 사이트에서 로그인 → "🖼 포스터 검수" 갤러리로 틀린 것만 교정하라.
  *
- * ⚠️ [실행 전 백업 권장] 전체 덮어쓰기라 기존 정확 포스터가 바뀔 수 있다.
+ * ⚠️ [--all 실행 전 백업 필수] 기존 정확 포스터가 바뀔 수 있다.
  *    Supabase SQL Editor에서 아래 결과를 파일로 저장해 두면 즉시 복구 가능:
  *      select id, title, poster_url from anime where poster_url is not null;
+ *    (기본 fill 모드는 덮어쓰지 않으므로 백업 없이 실행해도 된다.)
  *
  * ── 실행 방법 (PowerShell, 이 파일이 있는 폴더에서) ──────────────────────
  *   1) 의존성 설치:   npm install
  *   2) .env 작성:     .env.example 을 .env 로 복사 후 값 채우기
  *                     (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY / TMDB_API_KEY)
- *   3) (권장) 백업:   위 select 결과 저장
- *   4) 실행:          node bulk-fill-posters.js
+ *   3) 실행(기본):    node bulk-fill-posters.js          # 빈 것만 채움 — 안전
+ *   3') 전체 재매칭:  node bulk-fill-posters.js --all    # 덮어씀 — 백업 후에만
  *
  * ⚠️ service_role 키는 DB 전권 키다. .env 에만 두고 절대 커밋/공유하지 마라
  *    (.gitignore 가 .env* 를 이미 제외). 노출 시 Supabase 대시보드에서 즉시 rotate.
@@ -280,11 +287,15 @@ async function findPoster(title) {
 
 // ── 메인 ────────────────────────────────────────────────────────────────
 async function main() {
-  // 대상: 전체 작품(덮어쓰기, SP3). 매번 전체 재검색 — resume 아님.
-  const { data: rows, error } = await supabase
-    .from('anime')
-    .select('id,title,poster_url')
-    .order('id', { ascending: true });
+  // 모드: 기본 = 빈 것만 채움(fill, 덮어쓰기 없음) / --all = 전체 재처리(덮어씀).
+  // 사람이 검수로 확정한 포스터를 재실행이 날려먹는 사고를 막기 위해
+  // "덮어쓰기"는 반드시 명시적 플래그를 요구한다.
+  const overwriteAll = process.argv.slice(2).includes('--all');
+
+  let query = supabase.from('anime').select('id,title,poster_url');
+  if (!overwriteAll) query = query.is('poster_url', null);   // 빈 것만
+
+  const { data: rows, error } = await query.order('id', { ascending: true });
 
   if (error) {
     console.error('[오류] 대상 조회 실패:', error.message);
@@ -292,10 +303,19 @@ async function main() {
   }
 
   const total = rows.length;
-  console.log(`전체 재처리 대상: ${total}개 (기존 poster_url 덮어씀)`);
-  if (total === 0) { console.log('작품이 없습니다. 종료.'); return; }
-  console.log('※ 자동/시즌 매칭이라 일부 오매칭 가능 → 실행 후 사이트 "포스터 검수"로 교정하세요.');
-  console.log('※ 실행 전 백업 권장: select id,title,poster_url from anime where poster_url is not null;\n');
+  if (overwriteAll) {
+    console.log(`[--all] 전체 재처리 대상: ${total}개 — 기존 poster_url 을 덮어씁니다.`);
+    console.log('※ 사람이 검수로 확정한 포스터도 자동 결과로 바뀝니다.');
+    console.log('※ 백업 필수: select id,title,poster_url from anime where poster_url is not null;');
+  } else {
+    console.log(`[기본] 빈 포스터 채우기 대상: ${total}개 (poster_url 이 비어 있는 작품만)`);
+    console.log('※ 이미 채워진 포스터는 건드리지 않습니다. 전체 재매칭이 필요하면 --all 을 붙이세요.');
+  }
+  if (total === 0) {
+    console.log(overwriteAll ? '작품이 없습니다. 종료.' : '채울 빈 포스터가 없습니다. 종료.');
+    return;
+  }
+  console.log('※ 자동/시즌 매칭이라 일부 오매칭 가능 → 실행 후 사이트 "포스터 검수"로 교정하세요.\n');
 
   let saved = 0, empty = 0, failed = 0;
 
