@@ -616,6 +616,16 @@ function populateGenreFilter() {
   });
 }
 
+// ── 시청 중 별도 섹션 (2026-08-27) ──────────────────────────────────────
+// 정주행 / 전체 보기 탭에서는 아직 점수를 안 매긴(= 시청 중) 작품을 맨 위 별도 섹션으로 뽑는다.
+// 아래 본 섹션에서는 빼서 같은 작품이 두 번 보이지 않게 한다.
+// (분기별 탭은 분기 자체가 시간 순서라 그대로 둔다 — 관리자 지시 범위: 정주행·전체 보기)
+const ONGOING_SECTION = '▶ 시청 중';
+const splitOngoing = (list) => [
+  list.filter(a => a.score === null),
+  list.filter(a => a.score !== null),
+];
+
 function render() {
   if (!DATA) return;
   const main = document.getElementById('main');
@@ -632,7 +642,10 @@ function render() {
   } else if (currentTab === 'classics') {
     const f = applyFilter(DATA.classics);
     total = f.length;
-    html = f.length ? makeSection('정주행 목록', f) : noResult;
+    const [ongoing, rated] = splitOngoing(f);
+    if (ongoing.length) html += makeSection(ONGOING_SECTION, ongoing);
+    if (rated.length)   html += makeSection('정주행 목록', rated);
+    if (!html) html = noResult;
   } else {
     const all = [
       ...DATA.seasonal.flatMap(s => s.anime.map(a=>({...a,_q:s.quarter}))),
@@ -640,15 +653,17 @@ function render() {
     ];
     const f = applyFilter(all);
     total = f.length;
+    const [ongoing, rated] = splitOngoing(f);
+    if (ongoing.length) html += makeSection(ONGOING_SECTION, ongoing);
     if (sortMode !== 'default') {
-      html = f.length ? makeSection(`전체 (${f.length}편)`, f) : noResult;
+      if (rated.length) html += makeSection(`전체 (${rated.length}편)`, rated);
     } else {
       const grp = {};
-      f.forEach(a => { if(!grp[a._q]) grp[a._q]=[]; grp[a._q].push(a); });
+      rated.forEach(a => { if(!grp[a._q]) grp[a._q]=[]; grp[a._q].push(a); });
       DATA.seasonal.forEach(s => { if(grp[s.quarter]) html+=makeSection(s.quarter,grp[s.quarter]); });
       if (grp['정주행']) html += makeSection('정주행', grp['정주행']);
-      if (!html) html = noResult;
     }
+    if (!html) html = noResult;
   }
 
   main.innerHTML = html || noResult;
