@@ -47,7 +47,12 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const TMDB_API_KEY = process.env.TMDB_API_KEY;
 
 if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-  console.error('[오류] .env 에 SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY 를 설정하세요.');
+  console.error('[오류] SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY 가 없습니다.');
+  console.error('  권장) 이 PowerShell 창에서만 주입 — 창을 닫으면 사라져 디스크에 안 남습니다:');
+  console.error('        $env:SUPABASE_URL = "https://xxxx.supabase.co"');
+  console.error('        $env:SUPABASE_SERVICE_ROLE_KEY = "여기에키를그대로"');
+  console.error('        $env:TMDB_API_KEY = "여기에키를그대로"');
+  console.error('  대안) .env.example 을 .env 로 복사해 값 채우기 (파일로 남으니 작업 후 정리 권장)');
   process.exit(1);
 }
 const TMDB_CONFIGURED = !!TMDB_API_KEY && !TMDB_API_KEY.startsWith('<');
